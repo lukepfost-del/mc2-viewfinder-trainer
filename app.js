@@ -43,7 +43,12 @@ const badgeDetect   = document.getElementById('badge-detect');
 const tutTarget     = document.getElementById('tutorial-target');
 const lcOverlay     = document.getElementById('level-complete');
 const lcStarsEl     = document.getElementById('lc-stars');
+const lcTitle       = document.getElementById('lc-title');
 const lcSubEl       = document.getElementById('lc-sub');
+const lcContinueBtn = document.getElementById('lc-continue');
+const repDots       = document.getElementById('rep-dots');
+const feedbackLabel = document.getElementById('feedback-label');
+const camProfileSel = document.getElementById('camera-profile');
 
 const kvValEl       = document.getElementById('kv-value');
 const masValEl      = document.getElementById('mas-value');
@@ -109,11 +114,15 @@ const state = {
 
   // tutorial
   levelIdx: 0,
-  holdMs: 0,                 // accumulated time in spec
-  driftCount: 0,             // each time we lose pass, count it (for star)
-  levelStartT: 0,
+  repsDone: 0,               // reps completed in current level
+  repArmed: false,           // is pose currently in spec? (drives button color)
+  awaitingReset: false,      // after locking a rep, must drift out before next can arm
+  prevArmed: false,          // for arm-tick edge detection
   paused: false,             // true during level-complete overlay
-  stars: loadStars(),        // best stars per level
+  stars: loadStars(),        // best stars per level (kept for tile display)
+
+  // camera profile (FOV approximation)
+  cameraProfileId: loadCameraProfile(),
 };
 
 // ============================================================================
@@ -595,26 +604,38 @@ function drawScene() {
     viewfinderEl.classList.toggle('blocked',   !!state.pose && !allowed);
     viewfinderEl.classList.toggle('searching', !state.pose);
     triggerBtn.classList.toggle('armed', allowed);
-    if (allowed && !state.prevAllowed) MC2Audio.lock();
+    if (allowed && !state.prevAllowed) MC2Audio.armTick();
     state.prevAllowed = allowed;
   }
 }
 
 // ============================================================================
-// Tutorial state machine
+// Tutorial state machine — REP-BASED
+//
+// Each level requires N reps.  One rep:
+//   1. User brings pose into spec → button arms green, subtle armTick().
+//   2. User presses EXPOSE → rep locks, repsDone++, awaitingReset=true.
+//   3. User must drift OUT of spec (per level.resetCheck) before the next rep
+//      can arm — prevents spamming EXPOSE while still in spec.
+//   4. After all reps: show "Level Complete" overlay with Continue button.
+//   5. After final level: transition to Play mode.
+//
+// No hold meters, no time boxes.  The user is the lock action.
 // ============================================================================
 function startTutorial() {
   state.mode = MODE.TUTORIAL;
   state.levelIdx = 0;
-  state.holdMs = 0;
-  state.driftCount = 0;
+  state.repsDone = 0;
+  state.repArmed = false;
+  state.awaitingReset = false;
+  state.prevArmed = false;
   state.paused = false;
-  state.levelStartT = performance.now();
   setLevelUI();
   enterApp();
 }
 
-function startPlay() {
+function startPlay(opts) {
+  opts = opts || {};
   state.mode = MODE.PLAY;
   // Show full HUD
   viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid');
@@ -625,12 +646,18 @@ function startPlay() {
   promptHint.textContent = '';
   levelPill.textContent  = 'PLAY';
   skipBtn.classList.add('hidden');
-  triggerBtn.classList.remove('hidden');
+  triggerBtn.classList.remove('hidden', 'armed');
   // Hide tutorial-only UI
   tutTarget.classList.add('hidden');
   holdMeter.style.display = 'none';
   liveReadouts.style.display = 'flex';
-  enterApp();
+  // If transitioning from tutorial, camera is already running — don't restart it
+  if (opts.keepCamera) {
+    appShell.classList.remove('hidden');
+    startScreen.classList.add('hidden');
+  } else {
+    enterApp();
+  }
 }
 
 function setLevelUI() {
@@ -639,130 +666,182 @@ function setLevelUI() {
   promptStep.textContent = lvl.step;
   promptText.textContent = lvl.title;
   promptHint.textContent = lvl.hint;
-  levelPill.textContent  = lvl.step.replace(/\s+/g,' ');
+  updateLevelPill();
 
   // Layer the HUD chrome
   viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid');
   if (lvl.layer !== 'full') viewfinderEl.classList.add('layer-' + lvl.layer);
 
-  // Tutorial target visibility
+  // Tutorial target visibility (rings on cassette plane)
   if (lvl.id === 'aim' || lvl.id === 'center') tutTarget.classList.remove('hidden');
   else                                          tutTarget.classList.add('hidden');
 
-  // Hold meter + readouts
-  holdMeter.style.display = 'block';
+  // Feedback strip: hide hold meter; show rep counter + readouts only.
+  holdMeter.style.display = 'none';
   liveReadouts.style.display = 'flex';
-  holdLabel.textContent = lvl.passText;
-  holdFill.style.width = '0%';
-  holdFill.classList.remove('warn','fail');
 
-  // EXPOSE only on the final level
-  triggerBtn.classList.toggle('hidden', !lvl.showExpose);
-  triggerBtn.classList.remove('armed');
+  // EXPOSE button is the lock action for ALL tutorial levels now.
+  triggerBtn.classList.remove('hidden', 'armed');
   skipBtn.classList.remove('hidden');
 
-  state.holdMs = 0;
-  state.driftCount = 0;
-  state.levelStartT = performance.now();
+  // Reset per-level rep state
+  state.repsDone = 0;
+  state.repArmed = false;
+  state.awaitingReset = false;
+  state.prevArmed = false;
+
+  renderRepDots();
 }
 
-function tickTutorial(dtMs) {
+function updateLevelPill() {
+  const lvl = MC2_LEVELS[state.levelIdx];
+  if (!lvl) return;
+  levelPill.textContent =
+    `${lvl.step.replace(/\s+/g,' ')} · ${state.repsDone}/${lvl.reps}`;
+}
+
+function renderRepDots() {
+  const lvl = MC2_LEVELS[state.levelIdx];
+  if (!lvl) { repDots.innerHTML = ''; return; }
+  let html = '';
+  for (let i = 0; i < lvl.reps; i++) {
+    html += `<span class="rep-dot ${i < state.repsDone ? 'done' : ''}"></span>`;
+  }
+  repDots.innerHTML = html;
+}
+
+function tickTutorial(_dtMs) {
   if (state.paused) return;
   const lvl = MC2_LEVELS[state.levelIdx];
   if (!lvl) return;
 
-  const result = lvl.check(state.pose);
-  const wasInSpec = state.holdMs > 0;
-
-  // Update hold timer
-  if (result.pass) {
-    state.holdMs += dtMs;
-    holdFill.classList.remove('warn','fail');
-    holdLabel.textContent = lvl.reachText;
-    MC2Audio.tickHold(state.holdMs / lvl.holdMs);
-  } else {
-    if (wasInSpec && state.holdMs > 200) {
-      state.driftCount++;
-      MC2Audio.error();
-    }
-    state.holdMs = 0;
-    holdLabel.textContent = MC2_REASON_TEXT[result.reason] || lvl.passText;
-    if (result.reason === 'no-cassette') holdFill.classList.add('fail');
-    else holdFill.classList.add('warn');
-  }
-
-  const pct = Math.min(100, (state.holdMs / lvl.holdMs) * 100);
-  holdFill.style.width = pct.toFixed(1) + '%';
+  const result = lvl.inSpec(state.pose);
 
   // Live readouts
   renderReadouts(lvl.readouts, state.pose, result);
 
-  // Level-5 special: the EXPOSE button is the pass action, not auto-hold.
-  // Other levels: pass automatically once hold is reached.
-  if (lvl.showExpose) {
-    triggerBtn.classList.toggle('armed', !!result.pass);
-  } else if (state.holdMs >= lvl.holdMs) {
-    completeLevel();
+  // Rearm gating: after a rep is locked, user must drift OUT of spec before
+  // the button can arm again.  This keeps each rep deliberate.
+  if (state.awaitingReset) {
+    if (lvl.resetCheck(state.pose)) {
+      state.awaitingReset = false;
+    }
   }
 
-  // Border feedback: green when in spec, amber when searching, red when off
-  viewfinderEl.classList.remove('armed','blocked','searching');
-  if (!state.pose)        viewfinderEl.classList.add('searching');
-  else if (result.pass)   viewfinderEl.classList.add('armed');
-  else                    viewfinderEl.classList.add('blocked');
+  // Update arm state
+  const armable = result.ok && !state.awaitingReset;
+  state.repArmed = armable;
 
-  // Tutorial target ring: pulse → locked when pass
+  // Subtle armTick ONLY on the rising edge (don't repeat)
+  if (armable && !state.prevArmed) {
+    MC2Audio.armTick();
+  }
+  state.prevArmed = armable;
+
+  // Visual feedback
+  triggerBtn.classList.toggle('armed', armable);
+  viewfinderEl.classList.remove('armed','blocked','searching');
+  if (!state.pose)         viewfinderEl.classList.add('searching');
+  else if (result.ok)      viewfinderEl.classList.add('armed');
+  else                     viewfinderEl.classList.add('blocked');
+
+  // Hint label updates dynamically with reason when out of spec
+  const labelText = state.awaitingReset
+    ? `Rep ${state.repsDone} locked — move off target to start next rep`
+    : (result.ok
+        ? 'Hold steady — press EXPOSE'
+        : (MC2_REASON_TEXT[result.reason] || lvl.hint));
+  feedbackLabel.textContent = labelText;
+
+  // Tutorial target ring on cassette plane: locked when in spec
   if (lvl.id === 'aim' || lvl.id === 'center') {
-    tutTarget.classList.toggle('locked', !!result.pass);
+    tutTarget.classList.toggle('locked', !!result.ok);
   }
 }
 
-function completeLevel() {
+// Called when EXPOSE is pressed during tutorial.
+// If we're armed, lock a rep; otherwise play the soft fail tone.
+function tryLockRep() {
+  if (state.paused) return;
+  const lvl = MC2_LEVELS[state.levelIdx];
+  if (!lvl) return;
+
+  if (!state.repArmed) {
+    MC2Audio.failPress();
+    flashFeedback('Not in spec yet');
+    return;
+  }
+
+  // Lock the rep
+  state.repsDone++;
+  state.awaitingReset = true;
+  state.repArmed = false;
+  state.prevArmed = false;
+  triggerBtn.classList.remove('armed');
+  MC2Audio.lockRep();
+  renderRepDots();
+  updateLevelPill();
+  flashFeedback(`Rep ${state.repsDone} / ${lvl.reps} locked`);
+
+  // Final-level taps also fire the shutter flash so it FEELS like an exposure
+  if (lvl.isFinal) fireShutterEffect();
+
+  if (state.repsDone >= lvl.reps) {
+    // Brief delay so the user sees the last rep land before the overlay
+    setTimeout(showLevelComplete, 350);
+  }
+}
+
+let _flashTimer = null;
+function flashFeedback(text) {
+  feedbackLabel.textContent = text;
+  feedbackLabel.classList.add('flash');
+  clearTimeout(_flashTimer);
+  _flashTimer = setTimeout(() => feedbackLabel.classList.remove('flash'), 600);
+}
+
+function fireShutterEffect() {
+  flash.classList.add('on');
+  setTimeout(() => flash.classList.remove('on'), 180);
+}
+
+function showLevelComplete() {
   state.paused = true;
   const lvl = MC2_LEVELS[state.levelIdx];
-  // Star rating: 3 stars = 0 drifts, 2 stars = 1-2 drifts, 1 star = 3+ drifts
-  const stars =
-    state.driftCount === 0 ? 3 :
-    state.driftCount <= 2  ? 2 : 1;
-  const prev = state.stars[lvl.id] || 0;
-  if (stars > prev) state.stars[lvl.id] = stars;
+  state.stars[lvl.id] = 3;   // earning a level = 3 stars (no drift penalty in rep model)
   saveStars();
 
-  lcStarsEl.textContent = '★'.repeat(stars) + '☆'.repeat(3-stars);
-  lcSubEl.textContent = stars === 3
-    ? 'Perfect hold — no drift!'
-    : stars === 2 ? 'Nicely done. Try for 3 stars next time.'
-    : 'Got it. Keep practicing!';
+  lcStarsEl.textContent  = '★ ★ ★';
+  lcTitle.textContent    = lvl.isFinal ? 'Tutorial Complete!' : 'Level Complete!';
+  lcSubEl.textContent    = lvl.isFinal
+    ? "You've practiced every skill. Tap Continue to start free practice in Play mode."
+    : `You nailed ${lvl.reps} reps of ${lvl.title.toLowerCase()}. Press Continue when ready.`;
+  lcContinueBtn.textContent = lvl.isFinal ? 'Enter Play mode →' : 'Continue →';
   lcOverlay.classList.remove('hidden');
-  MC2Audio.complete();
-
-  setTimeout(() => {
-    lcOverlay.classList.add('hidden');
-    state.paused = false;
-    if (state.levelIdx < MC2_LEVELS.length - 1) {
-      state.levelIdx++;
-      setLevelUI();
-    } else {
-      // Finished tutorial
-      finishTutorial();
-    }
-  }, 2000);
+  MC2Audio.levelComplete();
 }
 
-function finishTutorial() {
-  // Show start screen with updated stars
-  showStartScreen();
+// Continue button on the level-complete overlay
+function onContinue() {
+  lcOverlay.classList.add('hidden');
+  state.paused = false;
+  const lvl = MC2_LEVELS[state.levelIdx];
+  if (lvl.isFinal) {
+    // After the tutorial: drop straight into Play mode
+    startPlay({ keepCamera: true });
+    return;
+  }
+  state.levelIdx++;
+  setLevelUI();
 }
 
 function skipLevel() {
   if (state.paused) return;
   if (state.mode !== MODE.TUTORIAL) return;
-  if (state.levelIdx < MC2_LEVELS.length - 1) {
-    state.levelIdx++;
-    setLevelUI();
-  } else {
-    finishTutorial();
-  }
+  // Skipping a level still shows the level-complete pop so the flow is consistent.
+  // (User explicitly chose to skip; star not awarded for skipped levels.)
+  state.repsDone = MC2_LEVELS[state.levelIdx].reps;
+  showLevelComplete();
 }
 
 // ============================================================================
@@ -805,7 +884,7 @@ function readoutEl(label, val, cls) {
 }
 
 // ============================================================================
-// Stars persistence
+// Stars + camera profile persistence
 // ============================================================================
 function loadStars() {
   try { return JSON.parse(localStorage.getItem('mc2v2-stars')) || {}; }
@@ -822,6 +901,26 @@ function renderTileStars() {
   } else {
     tileStars.textContent = `★ ${total} / ${possible}`;
   }
+}
+
+function loadCameraProfile() {
+  try {
+    const id = localStorage.getItem('mc2v2-cam-profile');
+    if (id && MC2_CAMERA_PROFILES.find(p => p.id === id)) return id;
+  } catch(_) {}
+  return MC2_CAMERA_PROFILES[0].id;
+}
+function getCameraProfile() {
+  return MC2_CAMERA_PROFILES.find(p => p.id === state.cameraProfileId) || MC2_CAMERA_PROFILES[0];
+}
+function applyCameraProfile() {
+  const p = getCameraProfile();
+  SETTINGS.focalRel = p.focalRel;
+}
+function setCameraProfile(id) {
+  state.cameraProfileId = id;
+  applyCameraProfile();
+  try { localStorage.setItem('mc2v2-cam-profile', id); } catch(_) {}
 }
 
 // ============================================================================
@@ -856,8 +955,7 @@ function loop(t) {
 function enterApp() {
   startScreen.classList.add('hidden');
   appShell.classList.remove('hidden');
-  // Ensure layout settles before we size canvas
-  requestAnimationFrame(() => {
+  requestAnimationFrame(function () {
     resizeCanvas();
     if (!state.running) startCamera();
   });
@@ -869,25 +967,24 @@ function showStartScreen() {
   appShell.classList.add('hidden');
   startScreen.classList.remove('hidden');
   renderTileStars();
-  // Reset chrome
   viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid','armed','blocked','searching');
   promptStrip.classList.add('hidden');
   tutTarget.classList.add('hidden');
   lcOverlay.classList.add('hidden');
 }
 
-routeTutorial.addEventListener('click', () => {
+routeTutorial.addEventListener('click', function () {
   MC2Audio.unlock();
   startTutorial();
 });
-routePlay.addEventListener('click', () => {
+routePlay.addEventListener('click', function () {
   MC2Audio.unlock();
   startPlay();
 });
-backBtn.addEventListener('click', () => {
+backBtn.addEventListener('click', function () {
   showStartScreen();
 });
-muteBtn.addEventListener('click', () => {
+muteBtn.addEventListener('click', function () {
   const m = !MC2Audio.isMuted();
   MC2Audio.setMuted(m);
   muteBtn.textContent = m ? '🔇' : '🔊';
@@ -895,8 +992,8 @@ muteBtn.addEventListener('click', () => {
 skipBtn.addEventListener('click', skipLevel);
 
 // Play-mode HUD controls (kV / mAs / mode tap-zones)
-document.querySelectorAll('[data-act]').forEach(el => {
-  el.addEventListener('click', e => {
+document.querySelectorAll('[data-act]').forEach(function (el) {
+  el.addEventListener('click', function (e) {
     if (state.mode !== MODE.PLAY) return;
     e.stopPropagation();
     const act = e.currentTarget.dataset.act;
@@ -916,47 +1013,48 @@ document.querySelectorAll('[data-act]').forEach(el => {
 });
 updateKvMasFills();
 
-triggerBtn.addEventListener('click', () => {
-  // In tutorial, EXPOSE is only meaningful on level 5
+// EXPOSE button — locks a tutorial rep, or fires Play-mode shutter
+triggerBtn.addEventListener('click', function () {
   if (state.mode === MODE.TUTORIAL) {
-    const lvl = MC2_LEVELS[state.levelIdx];
-    if (!lvl || !lvl.showExpose) return;
-    if (!triggerBtn.classList.contains('armed') && !triggerBtnArmedTutorial(lvl)) {
-      MC2Audio.error();
-      return;
-    }
-    fireExpose();
+    tryLockRep();
     return;
   }
   if (state.mode === MODE.PLAY) {
-    if (!triggerBtn.classList.contains('armed')) { MC2Audio.error(); return; }
-    fireExpose();
+    if (!triggerBtn.classList.contains('armed')) { MC2Audio.failPress(); return; }
+    if (state.capturing) return;
+    state.capturing = true;
+    MC2Audio.expose();
+    fireShutterEffect();
+    setTimeout(function () { state.capturing = false; }, 220);
   }
 });
 
-// On level 5 the trigger should arm based on the level check, not the
-// generic interlocks that drawScene handles for play mode.
-function triggerBtnArmedTutorial(lvl) {
-  if (!lvl || !lvl.showExpose) return false;
-  const r = lvl.check(state.pose);
-  triggerBtn.classList.toggle('armed', !!r.pass);
-  return !!r.pass;
-}
+if (lcContinueBtn) lcContinueBtn.addEventListener('click', onContinue);
 
-function fireExpose() {
-  if (state.capturing) return;
-  state.capturing = true;
-  MC2Audio.expose();
-  flash.classList.add('on');
-  setTimeout(()=>{ flash.classList.remove('on'); state.capturing=false; }, 220);
-}
-
-function stepArr(arr, val, dir){
+function stepArr(arr, val, dir) {
   const i = arr.indexOf(val);
   const n = arr.length;
   const j = ((i < 0 ? 0 : i) + dir + n) % n;
   return arr[j];
 }
 
+// Camera profile picker (start screen)
+if (camProfileSel) {
+  for (const p of MC2_CAMERA_PROFILES) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.label;
+    if (p.id === state.cameraProfileId) opt.selected = true;
+    camProfileSel.appendChild(opt);
+  }
+  camProfileSel.addEventListener('change', function () {
+    setCameraProfile(camProfileSel.value);
+  });
+}
+
+// Apply chosen profile to focal length BEFORE first frame is processed
+applyCameraProfile();
+
 // Boot: start at the start screen
 showStartScreen();
+);

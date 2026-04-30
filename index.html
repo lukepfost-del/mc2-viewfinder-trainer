@@ -32,6 +32,15 @@
       </button>
     </div>
 
+    <div class="cam-profile-block">
+      <label for="camera-profile">Camera profile</label>
+      <select id="camera-profile"></select>
+      <p class="cam-profile-hint">
+        Phone cameras have different fields of view. If SID readings feel
+        consistently off, switch profiles. Default works for most main cameras.
+      </p>
+    </div>
+
     <p class="footnote">
       Print <code>qr-target.pdf</code> at 100% scale on letter paper.
       The QR is fixed at 9&nbsp;cm so the trainer always calibrates correctly.
@@ -108,11 +117,12 @@
     <!-- Tutorial-only: ghost target marker at level objective -->
     <div class="tutorial-target hidden" id="tutorial-target"></div>
 
-    <!-- Tutorial-only: level-complete burst -->
+    <!-- Tutorial-only: level-complete overlay with explicit Continue button -->
     <div class="level-complete hidden" id="level-complete">
       <div class="lc-stars" id="lc-stars"></div>
-      <div class="lc-title">Level Complete!</div>
+      <div class="lc-title" id="lc-title">Level Complete!</div>
       <div class="lc-sub" id="lc-sub"></div>
+      <button class="lc-continue" id="lc-continue">Continue &rarr;</button>
     </div>
 
     <div class="tap-zone" id="tap-kv"   data-act="kv"></div>
@@ -122,16 +132,21 @@
     <div id="flash"></div>
   </div>
 
-  <!-- FEEDBACK STRIP (below viewfinder): hold-to-pass meter + live readout -->
+  <!-- FEEDBACK STRIP (below viewfinder): rep dots + live readouts + status -->
   <div id="feedback-strip">
-    <div class="hold-meter" id="hold-meter">
+    <!-- Hold meter retained in DOM for layout reuse but hidden in tutorial -->
+    <div class="hold-meter" id="hold-meter" style="display:none">
       <div class="hold-fill" id="hold-fill"></div>
-      <div class="hold-label" id="hold-label">Aim at the cassette</div>
+      <div class="hold-label" id="hold-label"></div>
+    </div>
+    <div class="rep-row">
+      <div class="rep-dots" id="rep-dots"></div>
+      <div class="feedback-label" id="feedback-label">Aim at the cassette</div>
     </div>
     <div class="live-readouts" id="live-readouts"></div>
   </div>
 
-  <!-- BOTTOM ACTION ROW: Skip (tutorial) or EXPOSE (play) -->
+  <!-- BOTTOM ACTION ROW: Skip (tutorial) or EXPOSE (play / final tutorial) -->
   <div id="bottom-row">
     <button class="secondary-btn hidden" id="skip-btn">Skip lesson</button>
     <button class="trigger" id="trigger" aria-label="Trigger">EXPOSE</button>

@@ -1,25 +1,14 @@
 'use strict';
 
 // ============================================================================
-// MC2 Trainer 2.0 — WebAudio + haptic cues
-//
-// All audio is synthesized inline (no asset deps).  Bails gracefully when
-// AudioContext or vibrate is unavailable (e.g. iOS Safari with sound off).
-//
-// Public API:
-//   MC2Audio.unlock()      — call once on first user gesture (iOS requires this)
-//   MC2Audio.setMuted(bool)
-//   MC2Audio.lock()        — short positive tick, "lock-on" feel
-//   MC2Audio.tickHold(p)   — held progress: pitch ramps with p in 0..1
-//   MC2Audio.complete()    — level-complete chime
-//   MC2Audio.error()       — error tick (drift / fail)
-//   MC2Audio.expose()      — exposure shutter sound
+// MC2 Trainer 2.0 — subtle audio + haptic cues
+// All cues are short, low-volume, soft sine waves.
 // ============================================================================
 
-const MC2Audio = (() => {
+const MC2Audio = (function () {
   let ctx = null;
   let muted = false;
-  let lastHoldT = 0;
+  let masterGain = null;
 
   function ensureCtx() {
     if (ctx) return ctx;
@@ -27,83 +16,84 @@ const MC2Audio = (() => {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return null;
       ctx = new Ctx();
-    } catch(e) { return null; }
+      masterGain = ctx.createGain();
+      masterGain.gain.value = 0.10;
+      masterGain.connect(ctx.destination);
+    } catch (e) { return null; }
     return ctx;
   }
 
-  // Beep helper: f = freq, dur = seconds, type = 'sine'/'square'/'triangle'/'sawtooth'
-  function beep(freq, dur, { type='sine', gain=0.18, attack=0.005, release=0.04, freqEnd=null } = {}) {
+  function tone(freq, dur, opts) {
     if (muted) return;
     const c = ensureCtx();
     if (!c) return;
+    const o2 = opts || {};
+    const type    = o2.type    || 'sine';
+    const gain    = o2.gain    != null ? o2.gain    : 0.5;
+    const attack  = o2.attack  != null ? o2.attack  : 0.012;
+    const release = o2.release != null ? o2.release : 0.06;
+    const freqEnd = o2.freqEnd != null ? o2.freqEnd : null;
     try {
       const o = c.createOscillator();
       const g = c.createGain();
       o.type = type;
       o.frequency.setValueAtTime(freq, c.currentTime);
-      if (freqEnd != null) o.frequency.exponentialRampToValueAtTime(Math.max(1, freqEnd), c.currentTime + dur);
+      if (freqEnd != null) {
+        o.frequency.exponentialRampToValueAtTime(Math.max(1, freqEnd), c.currentTime + dur);
+      }
       g.gain.setValueAtTime(0, c.currentTime);
       g.gain.linearRampToValueAtTime(gain, c.currentTime + attack);
-      g.gain.linearRampToValueAtTime(0,    c.currentTime + dur);
-      o.connect(g).connect(c.destination);
+      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur + release);
+      o.connect(g).connect(masterGain);
       o.start();
-      o.stop(c.currentTime + dur + 0.05);
-    } catch(_) {}
+      o.stop(c.currentTime + dur + release + 0.05);
+    } catch (_) {}
   }
 
   function vibrate(pattern) {
     if (muted) return;
     if (!navigator.vibrate) return;
-    try { navigator.vibrate(pattern); } catch(_) {}
+    try { navigator.vibrate(pattern); } catch (_) {}
   }
 
   return {
-    unlock() {
+    unlock: function () {
       const c = ensureCtx();
       if (!c) return;
-      // iOS unlock: short silent buffer
       try {
         const buf = c.createBuffer(1, 1, 22050);
         const src = c.createBufferSource();
         src.buffer = buf; src.connect(c.destination); src.start(0);
         if (c.state === 'suspended') c.resume();
-      } catch(_) {}
+      } catch (_) {}
     },
-    setMuted(m) { muted = !!m; },
-    isMuted() { return muted; },
+    setMuted: function (m) { muted = !!m; },
+    isMuted:  function () { return muted; },
 
-    lock() {
-      beep(880, 0.10, { type: 'triangle', gain: 0.20, freqEnd: 1320 });
-      vibrate(20);
-    },
-
-    // Pitch climbs with hold progress; throttled so it doesn't spam
-    tickHold(p) {
-      const now = performance.now();
-      if (now - lastHoldT < 90) return;
-      lastHoldT = now;
-      const f = 520 + p * 440;
-      beep(f, 0.05, { type: 'sine', gain: 0.10 });
+    armTick: function () {
+      tone(660, 0.04, { type: 'sine', gain: 0.4 });
     },
 
-    complete() {
-      // Three-note arpeggio
-      beep(660,  0.10, { type: 'triangle', gain: 0.22 });
-      setTimeout(() => beep(880,  0.10, { type: 'triangle', gain: 0.22 }), 90);
-      setTimeout(() => beep(1320, 0.18, { type: 'triangle', gain: 0.24, release: 0.10 }), 180);
-      vibrate([10, 30, 10, 30, 30]);
+    lockRep: function () {
+      tone(880, 0.06, { type: 'sine', gain: 0.6 });
+      vibrate(15);
     },
 
-    error() {
-      beep(220, 0.08, { type: 'square', gain: 0.10, freqEnd: 165 });
-      vibrate([20, 40, 20]);
+    failPress: function () {
+      tone(220, 0.06, { type: 'sine', gain: 0.4, freqEnd: 180 });
+      vibrate(25);
     },
 
-    expose() {
-      // Camera shutter-ish: short broadband click then low thud
-      beep(1800, 0.04, { type: 'square', gain: 0.16 });
-      setTimeout(() => beep(120, 0.10, { type: 'sine', gain: 0.18, freqEnd: 60 }), 30);
-      vibrate(80);
+    levelComplete: function () {
+      tone(660, 0.08, { type: 'sine', gain: 0.55 });
+      setTimeout(function () { tone(880, 0.10, { type: 'sine', gain: 0.55 }); }, 90);
+      vibrate([12, 50, 12]);
+    },
+
+    expose: function () {
+      tone(1100, 0.05, { type: 'sine', gain: 0.55 });
+      setTimeout(function () { tone(440, 0.10, { type: 'sine', gain: 0.45, freqEnd: 330 }); }, 40);
+      vibrate(40);
     },
   };
 })();

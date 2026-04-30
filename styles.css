@@ -105,6 +105,34 @@ html, body {
   font-size: 11px;
 }
 
+.cam-profile-block {
+  text-align: left;
+  background: var(--bg-2);
+  border: 1px solid var(--pill-stroke);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+.cam-profile-block label {
+  display: block;
+  font-size: 11px; letter-spacing: 1px;
+  color: var(--text-dim); font-weight: 700;
+  margin-bottom: 6px;
+}
+.cam-profile-block select {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: var(--bg-1);
+  color: var(--text);
+  border: 1px solid var(--pill-stroke);
+  border-radius: 8px;
+}
+.cam-profile-hint {
+  margin: 8px 0 0 0;
+  font-size: 11px; color: var(--text-dim); line-height: 1.4;
+}
+
 /* ===================================================================
    APP SHELL — top bar / prompt / viewfinder / feedback / EXPOSE
    =================================================================== */
@@ -394,7 +422,26 @@ html, body {
   font-size: 26px; font-weight: 800; letter-spacing: 1px;
   margin-bottom: 6px; color: var(--green);
 }
-.lc-sub { font-size: 14px; color: var(--text-soft); padding: 0 24px; }
+.lc-sub {
+  font-size: 14px; color: var(--text-soft);
+  padding: 0 32px; line-height: 1.45;
+  margin-bottom: 22px;
+}
+.lc-continue {
+  background: var(--green);
+  color: #04130a;
+  border: 0;
+  border-radius: 12px;
+  padding: 14px 28px;
+  font-size: 15px; font-weight: 800; letter-spacing: 0.5px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(61,176,107,0.35);
+  transition: transform 80ms, box-shadow 200ms;
+}
+.lc-continue:active {
+  transform: scale(0.97);
+  box-shadow: 0 2px 8px rgba(61,176,107,0.25);
+}
 
 .tap-zone {
   position: absolute; bottom: 0; height: 11%;
@@ -461,6 +508,39 @@ html, body {
   display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
   text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+
+.rep-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 4px 2px;
+}
+.rep-dots {
+  display: flex; gap: 6px; flex-shrink: 0;
+}
+.rep-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--pill-stroke);
+  background: transparent;
+  transition: background 200ms, border-color 200ms, transform 200ms;
+}
+.rep-dot.done {
+  background: var(--green);
+  border-color: var(--green);
+  transform: scale(1.05);
+}
+.feedback-label {
+  flex: 1; text-align: right;
+  font-size: 12px; font-weight: 600;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+  transition: color 180ms, transform 180ms;
+}
+.feedback-label.flash {
+  color: var(--green);
+  transform: scale(1.04);
 }
 
 .live-readouts {
