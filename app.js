@@ -3,7 +3,10 @@
 // Surface any uncaught script error visibly — iOS Safari has no JS console
 // without dev-tools, so silent errors are invisible.  This banner sits above
 // the start screen so a real error stops being mysterious.
-window.addEventListener('error', function (e) {
+// In-page debug surface. iOS Safari has no JS console without dev-tools, so
+// we route uncaught errors and lifecycle messages to a visible bar at the
+// top of the screen.  Tap to dismiss.
+function mc2Status(msg, kind) {
   try {
     let bar = document.getElementById('mc2-error-bar');
     if (!bar) {
@@ -11,15 +14,26 @@ window.addEventListener('error', function (e) {
       bar.id = 'mc2-error-bar';
       bar.style.cssText =
         'position:fixed;left:0;right:0;top:0;z-index:9999;' +
-        'background:#ff4757;color:#fff;padding:8px 12px;' +
+        'padding:8px 12px;cursor:pointer;' +
         'font:600 12px/1.4 -apple-system,system-ui,sans-serif;' +
-        'white-space:pre-wrap;max-height:40vh;overflow:auto;';
+        'white-space:pre-wrap;max-height:40vh;overflow:auto;color:#fff;';
+      bar.addEventListener('click', function () { bar.style.display = 'none'; });
       document.body && document.body.appendChild(bar);
     }
-    const msg = (e && e.message) || String(e);
-    const src = e && (e.filename || '') + (e.lineno ? ':' + e.lineno : '');
-    bar.textContent = 'JS error: ' + msg + (src ? '\n' + src : '');
+    bar.style.background = kind === 'error' ? '#ff4757'
+                          : kind === 'info'  ? '#077B51'
+                          : '#3a3f4b';
+    bar.style.display = 'block';
+    bar.textContent = msg;
   } catch (_) {}
+}
+window.addEventListener('error', function (e) {
+  const msg = (e && e.message) || String(e);
+  const src = e && (e.filename || '') + (e.lineno ? ':' + e.lineno : '');
+  mc2Status('JS error: ' + msg + (src ? '\n' + src : ''), 'error');
+});
+window.addEventListener('unhandledrejection', function (e) {
+  mc2Status('Promise rejection: ' + (e && e.reason && (e.reason.message || e.reason)), 'error');
 });
 
 // =============================================================================
@@ -199,7 +213,12 @@ async function startCamera() {
     resizeCanvas();
     requestAnimationFrame(loop);
   } catch (err) {
-    alert('Camera unavailable: ' + (err && err.message ? err.message : err));
+    const msg = (err && (err.name + ': ' + err.message)) || String(err);
+    mc2Status(
+      'Camera unavailable — ' + msg +
+      '\nFix: Settings → Safari → Camera → Allow, then reload.',
+      'error'
+    );
     showStartScreen();
   }
 }
@@ -996,12 +1015,14 @@ function showStartScreen() {
 }
 
 routeTutorial.addEventListener('click', function () {
-  MC2Audio.unlock();
-  startTutorial();
+  mc2Status('Tutorial tapped — requesting camera…', 'info');
+  try { MC2Audio.unlock(); } catch (e) { mc2Status('Audio unlock failed: ' + e, 'error'); }
+  try { startTutorial(); } catch (e) { mc2Status('startTutorial threw: ' + (e && e.message), 'error'); }
 });
 routePlay.addEventListener('click', function () {
-  MC2Audio.unlock();
-  startPlay();
+  mc2Status('Play tapped — requesting camera…', 'info');
+  try { MC2Audio.unlock(); } catch (e) { mc2Status('Audio unlock failed: ' + e, 'error'); }
+  try { startPlay(); } catch (e) { mc2Status('startPlay threw: ' + (e && e.message), 'error'); }
 });
 backBtn.addEventListener('click', function () {
   showStartScreen();
@@ -1036,12 +1057,13 @@ document.querySelectorAll('[data-act]').forEach(function (el) {
 updateKvMasFills();
 
 // EXPOSE button — locks a tutorial rep, or fires Play-mode shutter
-triggerBtn.addEventListener('click', function () {
+triggerBtn.addEventListener("click", function () {
   if (state.mode === MODE.TUTORIAL) {
     tryLockRep();
     return;
   }
   if (state.mode === MODE.PLAY) {
+    if (!triggerBtn.classList.contains('armed')) { MC2Audio.failPress(); return; }
     if (state.capturing) return;
     state.capturing = true;
     MC2Audio.expose();
@@ -1059,10 +1081,9 @@ function stepArr(arr, val, dir) {
   return arr[j];
 }
 
-// Camera profile picker (start screen).
-// Options are declared statically in index.html so they're visible even if
-// this script fails to run.  Here we only sync the saved selection and wire
-// up the change handler.
+// Camera profile picker (start screen). Options are static in HTML so they
+// show even if this script doesn't reach this point. Here we sync the saved
+// selection and bind change.
 if (camProfileSel) {
   if (camProfileSel.options.length === 0 && Array.isArray(MC2_CAMERA_PROFILES)) {
     for (const p of MC2_CAMERA_PROFILES) {
