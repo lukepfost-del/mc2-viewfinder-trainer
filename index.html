@@ -394,7 +394,11 @@
   <button class="trigger" id="trigger" aria-label="Trigger">EXPOSE</button>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<!-- js-aruco2 (vendored locally for offline / no-CDN reliability).  Order
+     matters: cv.js then aruco.js then the dictionary, then app.js. -->
+<script src="assets/cv.js"></script>
+<script src="assets/aruco.js"></script>
+<script src="assets/aruco-dict.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

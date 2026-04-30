@@ -160,9 +160,13 @@ window.addEventListener('resize', resizeCanvas);
 window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 200));
 if (window.visualViewport) window.visualViewport.addEventListener('resize', resizeCanvas);
 
-// ---- QR detection (One-Euro smoothed corners) ----
+// ---- ArUco detection (One-Euro smoothed corners) ----
+// Uses js-aruco2 with the ARUCO_4X4_1000 dictionary (matches OpenCV's
+// DICT_4X4_1000 / DICT_4X4_50 ID 0 we generated for the printed marker).
 const work = document.createElement('canvas');
 const wctx = work.getContext('2d', { willReadFrequently: true });
+const arDetector = new AR.Detector({ dictionaryName: 'ARUCO_4X4_1000' });
+const TARGET_MARKER_ID = 0; // we generated ID 0; ignore other markers
 
 function detectQR() {
   const vw = video.videoWidth, vh = video.videoHeight;
@@ -183,21 +187,26 @@ function detectQR() {
   }
   state.meanLuma = samples ? luma/samples : 0;
 
-  const code = jsQR(imgData.data, w, h, { inversionAttempts: 'dontInvert' });
-  if (!code) return null;
+  // Run ArUco detector on the working frame
+  let markers;
+  try { markers = arDetector.detectImage(w, h, imgData.data); }
+  catch(e) { return null; }
+  if (!markers || !markers.length) return null;
 
-  const rawCorners = [
-    code.location.topLeftCorner,
-    code.location.topRightCorner,
-    code.location.bottomRightCorner,
-    code.location.bottomLeftCorner,
-  ];
+  // Pick our target marker (ID 0); fall back to lowest-Hamming-distance marker
+  let m = markers.find(mk => mk.id === TARGET_MARKER_ID);
+  if (!m) m = markers[0];
+  if (!m || !m.corners || m.corners.length !== 4) return null;
+
+  // js-aruco2 returns corners in clockwise order starting from top-left,
+  // matching the order jsQR used (TL, TR, BR, BL).
+  const rawCorners = m.corners.map(c => ({ x: c.x, y: c.y }));
   const t = performance.now();
   const smoothed = rawCorners.map((p, i) => ({
     x: cornerFilters[i].x.filter(p.x, t),
     y: cornerFilters[i].y.filter(p.y, t),
   }));
-  return { corners: smoothed, raw: rawCorners, data: code.data, t, scaleVid: 1/scale };
+  return { corners: smoothed, raw: rawCorners, id: m.id, t, scaleVid: 1/scale };
 }
 
 // ---- Linear algebra: 8x8 solver, 3x3 homography, inverse, 3x3 multiply ----
