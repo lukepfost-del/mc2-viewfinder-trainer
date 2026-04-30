@@ -14,9 +14,9 @@ const startScreen = document.getElementById('start-screen');
 const startBtn    = document.getElementById('start-btn');
 const calibInput  = document.getElementById('calib-input');
 const thickInput  = document.getElementById('thick-input');
-// v8: overlay/canvas/cassette all live inside the camera-window (the central
-// 56% region of the viewfinder square that mirrors Official Viewfinder.svg).
-const viewfinder  = document.getElementById('camera-window');
+// v9: camera fills the entire LCD - HUD overlays on top.  Use #lcd as the
+// reference for canvas sizing so the overlay aligns with the camera feed.
+const viewfinder  = document.getElementById('lcd');
 const video       = document.getElementById('video');
 const cassetteImg = document.getElementById('cassette-img');
 const overlay     = document.getElementById('overlay');
@@ -409,6 +409,27 @@ function pathQuad(quad){
   ctx.closePath();
 }
 
+// Solid black outline + inner white outline around the active area.
+// Stroke twice on the same path - black thick first, then thinner white on
+// top - which leaves a black band on the outside, white band in the middle,
+// then black band on the inside (matches WBZ box on the cassette image).
+function drawActiveAreaOutline(quad, inBounds) {
+  ctx.save();
+  ctx.lineJoin = 'round';
+  // Outer black
+  ctx.beginPath();
+  quad.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
+  ctx.closePath();
+  ctx.strokeStyle = inBounds ? '#000' : COLORS.red;
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  // Inner white
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawCornerTicks(quad, color, len) {
   ctx.save();
   ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineCap = 'butt';
@@ -450,13 +471,16 @@ function drawCollimationPillow(quad, bowFraction, lineWidth, color) {
 // SVG and stays visible against any camera background.
 function drawExternalCross(cx, cy, vfSide, _unused) {
   ctx.save();
-  function pill(x0, y0, w, h) {
+  function pill(x, y, w, h) {
+    // Rounded rectangle that works for any aspect ratio (arcTo handles both
+    // horizontal and vertical pills correctly).
     const r = Math.min(w, h) / 2;
     ctx.beginPath();
-    ctx.moveTo(x0 + r, y0); ctx.lineTo(x0 + w - r, y0);
-    ctx.arc(x0 + w - r, y0 + r, r, -Math.PI/2, Math.PI/2);
-    ctx.lineTo(x0 + r, y0 + h);
-    ctx.arc(x0 + r, y0 + r, r, Math.PI/2, -Math.PI/2);
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y,     x + w, y + r,     r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.arcTo(x,     y + h, x, y + h - r,     r);
+    ctx.arcTo(x,     y,     x + r, y,         r);
     ctx.closePath();
     ctx.fillStyle = '#fff';
     ctx.fill();
@@ -480,13 +504,14 @@ function drawExternalCross(cx, cy, vfSide, _unused) {
 // Official Viewfinder.svg's inner plus (6 wide x 30 long in 720-unit ref).
 function drawCenterPlus(cx, cy, vfSide, _unused) {
   ctx.save();
-  function pill(x0, y0, w, h) {
+  function pill(x, y, w, h) {
     const r = Math.min(w, h) / 2;
     ctx.beginPath();
-    ctx.moveTo(x0 + r, y0); ctx.lineTo(x0 + w - r, y0);
-    ctx.arc(x0 + w - r, y0 + r, r, -Math.PI/2, Math.PI/2);
-    ctx.lineTo(x0 + r, y0 + h);
-    ctx.arc(x0 + r, y0 + r, r, Math.PI/2, -Math.PI/2);
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y,     x + w, y + r,     r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.arcTo(x,     y + h, x, y + h - r,     r);
+    ctx.arcTo(x,     y,     x + r, y,         r);
     ctx.closePath();
     ctx.fillStyle = '#fff';
     ctx.fill();
@@ -549,8 +574,10 @@ function drawScene() {
     const activeLocal = [{ x:-half, y:-half }, { x: half, y:-half }, { x: half, y: half }, { x:-half, y: half }];
     const activeScreen = pts2screen(activeLocal, l2s);
 
-    // Active-area corner ticks - black, matches the real device
-    drawCornerTicks(activeScreen, p.inBounds ? '#000' : COLORS.red, 18);
+    // Active-area outline: solid black border with inner white border,
+    // aligned to the cassette image's WBZ box.  Two stacked strokes give
+    // the black-white-black banded look that matches the WBZ graphic.
+    drawActiveAreaOutline(activeScreen, p.inBounds);
 
     // Collimation pillow (only in bounds)
     if (p.inBounds && p.fieldHalf > 0) {
@@ -640,26 +667,24 @@ function loop() {
 // Controls (auto-only collimator; no A/M toggle)
 // ============================================================================
 function bindControls() {
-  document.querySelectorAll('[data-act]').forEach(b => {
-    b.addEventListener('click', e => {
+  // Tap the whole control zone to cycle that setting.  No +/- buttons.
+  document.querySelectorAll('[data-act]').forEach(el => {
+    el.style.pointerEvents = 'auto';
+    el.addEventListener('click', e => {
       e.stopPropagation();
       const act = e.currentTarget.dataset.act;
-      if (act === 'kv+')  state.kv  = stepArr(state.kvOpts,  state.kv,   1);
-      if (act === 'kv-')  state.kv  = stepArr(state.kvOpts,  state.kv,  -1);
-      if (act === 'mas+') state.mas = stepArr(state.masOpts, state.mas,  1);
-      if (act === 'mas-') state.mas = stepArr(state.masOpts, state.mas, -1);
-      kvValEl.textContent  = state.kv;
-      masValEl.textContent = state.mas;
+      if (act === 'kv') {
+        state.kv = stepArr(state.kvOpts, state.kv, 1);
+        kvValEl.textContent = state.kv;
+      } else if (act === 'mas') {
+        state.mas = stepArr(state.masOpts, state.mas, 1);
+        masValEl.textContent = state.mas;
+      } else if (act === 'mode') {
+        state.modeIdx = (state.modeIdx + 1) % state.modes.length;
+        modeValEl.textContent = state.modes[state.modeIdx];
+      }
     });
   });
-  // Tap the orange mode shield to cycle modes.
-  if (ctrlMode) {
-    ctrlMode.style.pointerEvents = 'auto';
-    ctrlMode.addEventListener('click', () => {
-      state.modeIdx = (state.modeIdx + 1) % state.modes.length;
-      modeValEl.textContent = state.modes[state.modeIdx];
-    });
-  }
   triggerBtn.addEventListener('click', () => {
     if (!triggerBtn.classList.contains('armed')) {
       if (navigator.vibrate) try { navigator.vibrate([20,40,20]); } catch(_) {}

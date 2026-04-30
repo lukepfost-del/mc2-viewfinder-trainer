@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#000000">
 <title>MC2 Viewfinder Trainer</title>
 <style>
-  /* All positions are in % of the 720-unit Official Viewfinder reference. */
+  /* All HUD positions are in % of the 720-unit Official Viewfinder reference. */
   :root {
     --green-pill: #3DB06B;
     --orange: #EE6C4D;
@@ -14,7 +14,7 @@
     --red: #ff4757;
     --bezel: #EE6C4D;
     --panel: #000;
-    --panel-soft: rgba(0,0,0,0.8);
+    --panel-soft: rgba(0,0,0,0.85);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -36,42 +36,47 @@
   #start-screen .btn { margin-top: 18px; background: var(--green-pill); color: #04130a; font-weight: 700; border: 0; border-radius: 12px; padding: 14px 22px; font-size: 15px; }
   #start-screen .small { margin-top: 14px; font-size: 11px; color: #9ca3af; max-width: 380px; }
 
-  /* ===== App layout ===== */
+  /* ===== App layout - viewfinder centered vertically with OXOS logo above ===== */
   #app {
     position: fixed; inset: 0;
     background: #000;
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 16px;
   }
 
-  /* The viewfinder square IS the device LCD - matches Official Viewfinder.svg
-     1:1 with viewBox 720x720.  Wrapped in an orange bezel. */
+  #logo {
+    /* OXOS wordmark - inline SVG below */
+    width: 50%;
+    max-width: 220px;
+    height: auto;
+    flex-shrink: 0;
+  }
+
+  /* Viewfinder is the FULL square of the phone width (capped by available
+     vertical room).  The orange device bezel wraps the LCD. */
   #viewfinder {
     position: relative;
-    width: 100vw;
+    width: 100%;
     aspect-ratio: 1 / 1;
-    max-height: calc(100vh - 100px);
+    max-height: calc(100vh - 220px);
+    max-width: calc(100vh - 220px);
     background: var(--bezel);
     overflow: hidden;
+    border-radius: 14px;
   }
-  /* Inner LCD area, with 8px equivalent bezel (8/720 = 1.11%) */
   #lcd {
     position: absolute;
     left: 1.11%; top: 1.11%; right: 1.11%; bottom: 1.11%;
     background: #000;
     overflow: hidden;
+    border-radius: 8px;
   }
 
-  /* Camera window: SVG (160,143)..(561,544) = 22.22%-77.92% x, 19.86%-75.56% y */
-  #camera-window {
-    position: absolute;
-    left: 22.22%; top: 19.86%;
-    width: 55.69%; height: 55.69%;
-    border-radius: 8px;
-    overflow: hidden;
-    background: #111;
-  }
+  /* Camera fills the LCD - HUD elements overlay on top */
   #video {
     position: absolute;
     inset: 0; width: 100%; height: 100%;
@@ -91,51 +96,57 @@
   #cassette-img.show { opacity: 1; }
   #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
-  /* SSD pill (green): SVG (562,0)..(720,52) = 78.06%-100% x, 0-7.22% y */
+  /* SSD pill (green) - top-right */
   #pill-ssd {
     position: absolute;
     right: 0; top: 0;
-    width: 21.94%; height: 7.22%;
+    height: 8%;
+    min-width: 22%;
+    padding: 0 12px;
     background: var(--green-pill);
     color: #042312;
     border-bottom-left-radius: 13px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 6px;
+    gap: 8px;
     font-weight: 800;
-    font-size: clamp(12px, 2.6vw, 18px);
+    font-size: clamp(13px, 3vw, 18px);
     letter-spacing: 0.5px;
-    /* The white vertical separator SVG shows between SSD label and value */
+    z-index: 4;
   }
   #pill-ssd.bad { background: var(--red); color: #fff; }
-  #pill-ssd .sep { width: 1px; height: 60%; background: rgba(255,255,255,0.7); }
+  #pill-ssd .sep { width: 1.5px; height: 60%; background: rgba(255,255,255,0.7); }
 
-  /* Battery panel: SVG (8,8)..(217,49) = 1.11-30.14% x, 1.11-6.81% y */
+  /* Battery panel - top-left */
   #pill-battery {
     position: absolute;
-    left: 1.11%; top: 1.11%;
-    width: 29.03%; height: 5.69%;
+    left: 0; top: 0;
+    height: 6.5%;
+    padding: 0 12px 0 10px;
     background: var(--panel);
     border-bottom-right-radius: 13px;
     display: flex;
     align-items: center;
-    padding: 0 8px;
-    gap: 6px;
-    font-size: clamp(10px, 2.2vw, 14px);
+    gap: 8px;
+    font-size: clamp(11px, 2.4vw, 14px);
     color: #fff;
+    z-index: 4;
   }
   #pill-battery .icon {
     display: inline-block;
-    width: 18%;
-    aspect-ratio: 2.4 / 1;
-    background:
-      linear-gradient(90deg, var(--green-pill) 100%, transparent 0%) no-repeat;
-    background-size: 92% 65%;
-    background-position: 4% center;
+    width: 28px;
+    height: 14px;
     border: 1.5px solid #fff;
     border-radius: 2px;
     position: relative;
+    box-sizing: border-box;
+  }
+  #pill-battery .icon::before {
+    content: '';
+    position: absolute;
+    inset: 1.5px;
+    background: var(--green-pill);
+    border-radius: 1px;
   }
   #pill-battery .icon::after {
     content: '';
@@ -145,40 +156,40 @@
     background: #fff;
   }
 
-  /* SID label panel: SVG (650,79)..(712,125) = 90.28-98.89% x, 10.97-17.36% y */
+  /* SID label (right side, below SSD pill) */
   #sid-label {
     position: absolute;
-    right: 1.11%; top: 10.97%;
-    width: 8.61%; height: 6.39%;
+    right: 1.11%; top: 11%;
+    width: 9%; height: 6.4%;
     background: var(--panel);
-    border-top-left-radius: 13px;
-    border-bottom-left-radius: 13px;
+    border-radius: 13px 0 0 13px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: clamp(10px, 2vw, 14px);
+    font-size: clamp(11px, 2.4vw, 14px);
     font-weight: 800;
     color: #fff;
     letter-spacing: 0.5px;
+    z-index: 4;
   }
 
-  /* SID gauge bar: SVG x=668, y=155, w=12, h=450 = 92.78-94.44% x, 21.53-83.99% y */
+  /* Vertical SID bar */
   #sid-bar-track {
     position: absolute;
     left: 92.78%; top: 21.53%;
     width: 1.67%; height: 62.5%;
     background: rgba(0,0,0,0.4);
     border-radius: 6px;
+    z-index: 3;
   }
-  /* Active in-range section: y=230..530 (15% inset top and bottom) */
   #sid-bar-active {
     position: absolute;
     left: 92.78%; top: 31.94%;
     width: 1.67%; height: 41.67%;
     background: rgba(0,0,0,0.85);
     border-radius: 6px;
+    z-index: 3;
   }
-  /* SID readout pill (green): w=60, h=35 in 720, anchored to current SID */
   #sid-readout {
     position: absolute;
     left: 88.61%;
@@ -196,24 +207,18 @@
   }
   #sid-readout.bad { background: var(--red); color: #fff; }
 
-  /* Heat fuel bar: SVG (264,614)..(456,624) = 36.67-63.33% x, 85.28-86.67% y */
-  #heat-bar-track {
+  /* Heat fuel bar */
+  #heat-bar-track, #heat-bar-fill {
     position: absolute;
     left: 36.67%; top: 85.28%;
-    width: 26.67%; height: 1.39%;
-    background: rgba(11,11,11,0.8);
+    height: 1.39%;
     border-radius: 999px;
+    z-index: 3;
   }
-  #heat-bar-fill {
-    position: absolute;
-    left: 36.67%; top: 85.28%;
-    width: 21%; height: 1.39%;
-    background: #B84646;
-    border-radius: 999px;
-    transition: width 200ms;
-  }
+  #heat-bar-track { width: 26.67%; background: rgba(11,11,11,0.8); }
+  #heat-bar-fill  { width: 21%;    background: #B84646; }
 
-  /* Bottom row: SVG y=641..720 (89%..100%) - kV (0..300=41.67%), Mode (272..446=24.17%), mAs (421..720=41.53%) */
+  /* Bottom controls - tap whole control to cycle (no +/- buttons) */
   .ctrl-zone {
     position: absolute;
     bottom: 0;
@@ -224,45 +229,47 @@
     align-items: center;
     justify-content: center;
     color: #fff;
+    cursor: pointer;
+    z-index: 4;
   }
   #ctrl-kv {
     left: 0;
     width: 41.67%;
     border-top-right-radius: 60px;
     align-items: flex-start;
-    padding-left: 8%;
+    padding-left: 7%;
   }
   #ctrl-mas {
     right: 0;
     width: 41.53%;
     border-top-left-radius: 60px;
     align-items: flex-end;
-    padding-right: 8%;
+    padding-right: 7%;
   }
-  /* Mode "shield" - orange pentagon-ish shape per SVG path */
   #ctrl-mode {
     left: 37.78%;
-    width: 24.17%;
-    height: 9.43%;
+    width: 24.44%;
+    height: 9.5%;
     background: var(--orange);
     color: #1a0a00;
-    /* Approximate the SVG's pentagon shape: top trapezoid */
     clip-path: polygon(0 25%, 50% 0, 100% 25%, 100% 100%, 0 100%);
     align-items: center;
+    justify-content: flex-end;
     z-index: 6;
-    padding-top: 6%;
+    padding-bottom: 6%;
   }
-  .ctrl-zone .label { font-size: clamp(9px, 1.8vw, 12px); letter-spacing: 1px; opacity: 0.7; text-transform: uppercase; }
-  .ctrl-zone .val { font-size: clamp(14px, 3.2vw, 22px); font-weight: 800; line-height: 1.1; }
-  .ctrl-zone button {
-    pointer-events: auto;
-    background: rgba(255,255,255,0.10);
-    border: 0; color: #fff;
-    width: 22px; height: 22px; border-radius: 4px;
-    font-size: 12px;
+  .ctrl-zone .label {
+    font-size: clamp(10px, 2vw, 13px);
+    letter-spacing: 1.5px;
+    opacity: 0.65;
+    text-transform: uppercase;
   }
-  .ctrl-zone .row { display: flex; gap: 4px; margin-top: 2px; }
-  #ctrl-mode .label, #ctrl-mode .val { color: #1a0a00; opacity: 1; }
+  #ctrl-mode .label { opacity: 0.85; }
+  .ctrl-zone .val {
+    font-size: clamp(16px, 3.6vw, 24px);
+    font-weight: 800;
+    line-height: 1.05;
+  }
 
   /* Crosshair / camera content overlays */
   #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 80ms ease-out; z-index: 10; }
@@ -270,21 +277,20 @@
   .interlock {
     position: absolute;
     left: 50%; transform: translateX(-50%);
-    top: 8.5%;
+    top: 9%;
     background: rgba(255,71,87,0.95);
     color: #fff;
     border-radius: 8px;
     padding: 5px 10px;
-    font-size: clamp(10px, 1.8vw, 12px); font-weight: 700; letter-spacing: 0.4px;
+    font-size: clamp(11px, 2vw, 13px); font-weight: 700; letter-spacing: 0.4px;
     text-align: center;
     max-width: 60%;
     pointer-events: none;
     z-index: 8;
   }
   .interlock.hidden { display: none; }
-
   .badge-detect {
-    position: absolute; left: 50%; top: 47.83%; transform: translate(-50%, -50%);
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
     background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2);
     border-radius: 12px; padding: 14px 18px;
     text-align: center; font-size: 13px; color: #fff;
@@ -295,24 +301,28 @@
   .badge-detect.hidden { display: none; }
   .badge-detect .big { font-size: 32px; margin-bottom: 6px; }
 
-  /* Trigger button below viewfinder (software-only, not in SVG) */
-  #trigger-row {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    background: #000;
-  }
+  /* EXPOSE button - rounded rectangle below viewfinder */
   .trigger {
     pointer-events: auto;
-    width: 70px; height: 70px; border-radius: 50%;
-    background: rgba(255,71,87,0.22); border: 3px solid var(--red); color: #fff;
-    font-size: 11px; letter-spacing: 0.7px; font-weight: 800;
+    width: 80%;
+    max-width: 360px;
+    height: 56px;
+    border-radius: 16px;
+    background: rgba(255,71,87,0.18);
+    border: 2px solid var(--red);
+    color: var(--red);
+    font-size: 17px;
+    letter-spacing: 1.5px;
+    font-weight: 800;
     display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
   }
-  .trigger.armed { background: rgba(41,211,106,0.25); border-color: var(--green-pill); }
-  .trigger:active { transform: scale(0.96); }
+  .trigger.armed {
+    background: rgba(41,211,106,0.18);
+    border-color: var(--green-pill);
+    color: var(--green-pill);
+  }
+  .trigger:active { transform: scale(0.98); }
 </style>
 </head>
 <body>
@@ -336,75 +346,69 @@
 </div>
 
 <div id="app">
+  <!-- OXOS wordmark (inline SVG, scaled with the viewfinder) -->
+  <svg id="logo" viewBox="0 0 260 56" xmlns="http://www.w3.org/2000/svg" aria-label="OXOS">
+    <!-- Stylized 'O' with cutouts top and bottom (target reticle look) -->
+    <g fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round">
+      <!-- Left O (cutouts at 0deg and 180deg = top/bottom) -->
+      <path d="M28 6 a22 22 0 0 1 22 22 M50 28 a22 22 0 0 1 -22 22 M28 50 a22 22 0 0 1 -22 -22 M6 28 a22 22 0 0 1 22 -22" />
+      <!-- X -->
+      <path d="M62 6 L98 50 M98 6 L62 50" />
+      <!-- Middle O -->
+      <path d="M132 6 a22 22 0 0 1 22 22 M154 28 a22 22 0 0 1 -22 22 M132 50 a22 22 0 0 1 -22 -22 M110 28 a22 22 0 0 1 22 -22" />
+      <!-- S -->
+      <path d="M222 14 a14 8 0 0 0 -14 -8 h-12 a8 8 0 0 0 0 16 h14 a8 8 0 0 1 0 16 h-12 a14 8 0 0 1 -14 -8" />
+    </g>
+  </svg>
+
   <div id="viewfinder">
     <div id="lcd">
-      <!-- Camera window with the live feed, cassette overlay, and crosshair canvas -->
-      <div id="camera-window">
-        <video id="video" autoplay muted playsinline webkit-playsinline></video>
-        <img id="cassette-img" src="assets/cassette-full.webp" alt="" />
-        <canvas id="overlay"></canvas>
-        <div id="flash"></div>
-        <div class="interlock hidden" id="interlock">&mdash; ALIGN BEAM &mdash;</div>
-        <div class="badge-detect" id="badge-detect">
-          <div class="big">&#x2316;</div>
-          <div>Aim camera at the printed QR target</div>
-        </div>
-      </div>
+      <video id="video" autoplay muted playsinline webkit-playsinline></video>
+      <img id="cassette-img" src="assets/cassette-full.webp" alt="" />
+      <canvas id="overlay"></canvas>
+      <div id="flash"></div>
 
-      <!-- Top-right green SSD pill -->
       <div id="pill-ssd">
         <span>SSD</span>
         <span class="sep"></span>
         <span id="ssd-val">--</span>
       </div>
 
-      <!-- Top-left battery panel -->
       <div id="pill-battery">
         <span class="icon"></span>
         <span>100%</span>
       </div>
 
-      <!-- SID label + vertical bar + floating readout -->
       <div id="sid-label">SID</div>
       <div id="sid-bar-track"></div>
       <div id="sid-bar-active"></div>
       <div id="sid-readout">--</div>
 
-      <!-- Heat fuel bar -->
       <div id="heat-bar-track"></div>
       <div id="heat-bar-fill"></div>
 
-      <!-- Bottom-left kV control -->
-      <div class="ctrl-zone" id="ctrl-kv">
+      <div class="ctrl-zone" id="ctrl-kv" data-act="kv">
         <div class="label">kV</div>
         <div class="val"><span id="kv-val">60</span></div>
-        <div class="row">
-          <button data-act="kv-">&minus;</button>
-          <button data-act="kv+">+</button>
-        </div>
       </div>
-
-      <!-- Bottom-center orange Mode shield -->
-      <div class="ctrl-zone" id="ctrl-mode">
+      <div class="ctrl-zone" id="ctrl-mode" data-act="mode">
         <div class="label">MODE</div>
         <div class="val" id="mode-val">DDR</div>
       </div>
-
-      <!-- Bottom-right mAs control -->
-      <div class="ctrl-zone" id="ctrl-mas">
+      <div class="ctrl-zone" id="ctrl-mas" data-act="mas">
         <div class="label">mAs</div>
         <div class="val"><span id="mas-val">0.16</span></div>
-        <div class="row">
-          <button data-act="mas-">&minus;</button>
-          <button data-act="mas+">+</button>
-        </div>
+      </div>
+
+      <div class="interlock hidden" id="interlock">&mdash; ALIGN BEAM &mdash;</div>
+      <div class="badge-detect" id="badge-detect">
+        <div class="big">&#x2316;</div>
+        <div>Aim camera at the printed QR target</div>
       </div>
     </div>
   </div>
 
-  <div id="trigger-row">
-    <button class="trigger" id="trigger" aria-label="Trigger" data-act="mode-tap">EXPOSE</button>
-  </div>
+  <button class="trigger" id="trigger" aria-label="Trigger">EXPOSE</button>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
