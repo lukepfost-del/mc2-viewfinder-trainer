@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#000000">
 <title>MC2 Viewfinder Trainer</title>
 <style>
-  /* All HUD positions are in % of the 720-unit Viewfinder reference. */
+  /* All HUD positions in % of the 720-unit Viewfinder reference. */
   :root {
     --green-pill: #3DB06B;
     --orange: #EE6C4D;
@@ -21,7 +21,6 @@
     overflow: hidden; touch-action: none;
     user-select: none; -webkit-user-select: none;
   }
-
   #start-screen { position: fixed; inset: 0; z-index: 50; background: linear-gradient(180deg, #0b0f17 0%, #000 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; overflow-y: auto; }
   #start-screen.hidden { display: none; }
   #start-screen h1 { margin: 0 0 8px 0; font-size: 22px; letter-spacing: 1px; }
@@ -33,21 +32,14 @@
   #start-screen .btn { margin-top: 18px; background: var(--green-pill); color: #04130a; font-weight: 700; border: 0; border-radius: 12px; padding: 14px 22px; font-size: 15px; }
   #start-screen .small { margin-top: 14px; font-size: 11px; color: #9ca3af; max-width: 380px; }
 
-  /* App layout - viewfinder centered with logo above + EXPOSE below */
   #app {
     position: fixed; inset: 0;
     background: #000;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    padding: 16px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 14px; padding: 16px;
   }
   #logo { width: 50%; max-width: 220px; height: auto; flex-shrink: 0; }
-
-  /* Square viewfinder.  No bezel CSS - the orange bezel is part of the
-     base SVG (Viewfinder black.svg). */
   #viewfinder {
     position: relative;
     width: 100%;
@@ -58,33 +50,16 @@
     background: #000;
   }
 
-  /* Base layer - ALL static HUD chrome from Viewfinder black.svg.
-     Camera, cassette, crosshair, and dynamic value text overlay on top. */
-  #vf-base {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 5;
-  }
-
-  /* Camera and cassette layers - underneath the SVG chrome but above the
-     LCD black background.  We give the SVG a transparent center via its
-     own design so the camera shows through. */
+  /* Camera + cassette + canvas (z=1..3) */
   #lcd {
     position: absolute;
-    /* The base SVG has an 8px orange bezel; LCD content sits inside that
-       at 1.11% inset.  Camera area is the WHOLE inner LCD - HUD overlays
-       in the SVG occlude the corners only. */
     left: 1.11%; top: 1.11%; right: 1.11%; bottom: 1.11%;
     background: #000;
     overflow: hidden;
     z-index: 1;
   }
   #video {
-    position: absolute;
-    inset: 0; width: 100%; height: 100%;
+    position: absolute; inset: 0; width: 100%; height: 100%;
     object-fit: cover;
     background: #000;
     z-index: 1;
@@ -106,95 +81,159 @@
     pointer-events: none; z-index: 3;
   }
 
-  /* Crosshair SVGs sit ABOVE the base SVG (z-index: 7). */
-  #external-cross, #center-cross {
-    position: absolute;
+  /* Static HUD chrome (z=5) - kV/mAs trapezoids, gray pills, battery, SID
+     bar, SID label, orange bezel */
+  #vf-base {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
     pointer-events: none;
-    transform-origin: 50% 50%;
-    will-change: transform;
-    z-index: 7;
+    z-index: 5;
   }
-  #external-cross {
-    left: 50%; top: 50%;
-    width: 25.56%; aspect-ratio: 1 / 1;
-    transform: translate(-50%, -50%);
-  }
-  #center-cross {
-    left: 50%; top: 50%;
-    width: 4.72%; aspect-ratio: 1 / 1;
-    transform: translate(-50%, -50%);
-  }
-  #external-cross.hidden, #center-cross.hidden { display: none; }
 
-  /* Dynamic value text overlays.  All positioned in % of viewfinder, sitting
-     above the base SVG (z-index: 6) so they're visible on top of the chrome. */
+  /* SSD pill background (z=6) - state-driven src */
+  #ssd-bg {
+    position: absolute;
+    right: 0; top: 0;
+    width: 21.94%;        /* (720-562)/720 */
+    height: 6.94%;        /* 50/720 */
+    z-index: 6;
+    pointer-events: none;
+  }
+
+  /* kV / mAs fill pills (z=6) - one per slot, shown based on current value.
+     Each fill pill is 46x11 in viewBox and overlays exactly one of the 5
+     gray slots in the base SVG.  Coords from base SVG (in 720 ref):
+       kV slots: y=695, h=11, x = 20, 67, 113, 160, 206 (each 46 wide)
+       mAs slots: y=695, h=11, x = 466, 513, 559, 605, 652 (each 46 wide)  */
+  .pill-fill {
+    position: absolute;
+    width: 6.39%;          /* 46/720 */
+    height: 1.53%;         /* 11/720 */
+    z-index: 6;
+    pointer-events: none;
+    display: none;
+  }
+  .pill-fill.on { display: block; }
+  /* kV slots - left-justified in left trapezoid */
+  #kv-slot-1 { left: 2.78%; top: 96.53%; }
+  #kv-slot-2 { left: 9.31%; top: 96.53%; }
+  #kv-slot-3 { left: 15.69%; top: 96.53%; }
+  #kv-slot-4 { left: 22.22%; top: 96.53%; }
+  #kv-slot-5 { left: 28.61%; top: 96.53%; }
+  /* mAs slots - in right trapezoid */
+  #mas-slot-1 { left: 64.72%; top: 96.53%; }
+  #mas-slot-2 { left: 71.25%; top: 96.53%; }
+  #mas-slot-3 { left: 77.64%; top: 96.53%; }
+  #mas-slot-4 { left: 84.03%; top: 96.53%; }
+  #mas-slot-5 { left: 90.56%; top: 96.53%; }
+
+  /* Mode shield (z=6) - state-driven src */
+  #mode-shield {
+    position: absolute;
+    left: 37.78%;         /* 272/720 */
+    top: 89.03%;          /* 641/720 */
+    width: 24.17%;        /* 174/720 */
+    height: 9.43%;        /* 67.9/720 */
+    z-index: 6;
+    pointer-events: none;
+  }
+
+  /* Dynamic value text overlays (z=7) */
   .value-overlay {
     position: absolute;
     color: #fff;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
     pointer-events: none;
-    z-index: 6;
+    z-index: 7;
     text-align: center;
   }
-  /* SSD value - inside the green pill at top-right (562, 0)..(720, 52) */
+  /* SSD value - inside the green/red pill at top-right */
   #ssd-value {
-    right: 3%; top: 1.5%;
-    color: #042312;
+    right: 4%;
+    top: 1.5%;
+    height: 4.5%;
+    color: #fff;
     font-size: clamp(14px, 3vw, 22px);
-    line-height: 7%;
-    height: 7.22%;
-    display: flex; align-items: center;
-    width: 6%;
+    width: 12%;
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: 4px;
   }
-  /* kV value - inside kV trapezoid (0, 641)..(300, 720+), sits above the gray pills */
+  #ssd-value::before {
+    content: 'SSD';
+    color: #fff;
+    font-size: 0.75em;
+    letter-spacing: 0.5px;
+    margin-right: 4px;
+    border-right: 1px solid rgba(255,255,255,0.6);
+    padding-right: 6px;
+  }
+  /* kV value - large, centered above the gray pills in left trapezoid */
   #kv-value {
-    left: 0;
-    bottom: 4%;
+    left: 0; bottom: 4.5%;
     width: 41.67%;
     text-align: center;
+    color: #fff;
     font-size: clamp(20px, 4.5vw, 30px);
   }
-  /* mAs value - inside mAs trapezoid */
+  /* mAs value - centered in right trapezoid */
   #mas-value {
-    right: 0;
-    bottom: 4%;
+    right: 0; bottom: 4.5%;
     width: 41.53%;
     text-align: center;
+    color: #fff;
     font-size: clamp(18px, 4vw, 28px);
   }
-  /* Mode value - inside the orange shield */
+  /* Mode value (DDR/Single/etc) - white centered in the mode shield */
   #mode-value {
     left: 37.78%;
-    bottom: 1.5%;
-    width: 24.44%;
+    top: 91.5%;
+    width: 24.17%;
     text-align: center;
-    color: #1a0a00;
+    color: #fff;
     font-size: clamp(16px, 3.6vw, 24px);
+    font-weight: 800;
   }
-  /* SID floating readout pill (green) - the only floating element on the SID bar */
+  /* SID floating readout - white text on black */
   #sid-readout {
     position: absolute;
-    left: 88.61%;
-    width: 9.17%; height: 4.86%;
-    background: var(--green-pill);
-    color: #042312;
-    border-radius: 6px;
+    left: 89.6%;
+    width: 7.5%; height: 4.86%;
+    background: rgba(0,0,0,0.85);
+    color: #fff;
+    border-radius: 4px;
     font-weight: 800;
     font-size: clamp(11px, 2.4vw, 16px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: flex; align-items: center; justify-content: center;
     transition: top 80ms ease-out, background 200ms;
     z-index: 8;
   }
-  #sid-readout.bad { background: var(--red); color: #fff; }
+  #sid-readout.bad { background: var(--red); }
 
-  /* Tap targets for kV / Mode / mAs - invisible, just trigger cycles */
+  /* Crosshair group - both pieces translate together so the outer pills
+     follow the center cross around as the aim point moves. */
+  #crosshair {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 0; height: 0;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 7;
+    will-change: transform;
+  }
+  #external-cross, #center-cross {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  #external-cross { width: 25.56vmin; max-width: 25.56vh; aspect-ratio: 1 / 1; }
+  #center-cross   { width:  4.72vmin; max-width:  4.72vh; aspect-ratio: 1 / 1; }
+  #external-cross.hidden, #center-cross.hidden { display: none; }
+
   .tap-zone {
     position: absolute;
-    bottom: 0;
-    height: 11%;
+    bottom: 0; height: 11%;
     background: transparent;
     pointer-events: auto;
     z-index: 9;
@@ -214,11 +253,9 @@
     color: #fff;
     border-radius: 8px;
     padding: 5px 10px;
-    font-size: clamp(11px, 2vw, 13px); font-weight: 700; letter-spacing: 0.4px;
-    text-align: center;
-    max-width: 60%;
-    pointer-events: none;
-    z-index: 8;
+    font-size: clamp(11px, 2vw, 13px); font-weight: 700;
+    text-align: center; max-width: 60%;
+    pointer-events: none; z-index: 8;
   }
   .interlock.hidden { display: none; }
   .badge-detect {
@@ -226,9 +263,7 @@
     background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2);
     border-radius: 12px; padding: 14px 18px;
     text-align: center; font-size: 13px; color: #fff;
-    max-width: 60%;
-    pointer-events: none;
-    z-index: 9;
+    max-width: 60%; pointer-events: none; z-index: 9;
   }
   .badge-detect.hidden { display: none; }
   .badge-detect .big { font-size: 32px; margin-bottom: 6px; }
@@ -244,11 +279,7 @@
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
-  .trigger.armed {
-    background: rgba(41,211,106,0.18);
-    border-color: var(--green-pill);
-    color: var(--green-pill);
-  }
+  .trigger.armed { background: rgba(41,211,106,0.18); border-color: var(--green-pill); color: var(--green-pill); }
   .trigger:active { transform: scale(0.98); }
 </style>
 </head>
@@ -276,38 +307,51 @@
   <img id="logo" src="assets/oxos-logo.svg" alt="OXOS" />
 
   <div id="viewfinder">
-    <!-- Camera + cassette + canvas (z=1..3) -->
     <div id="lcd">
       <video id="video" autoplay muted playsinline webkit-playsinline></video>
       <img id="cassette-img" src="assets/cassette-full.webp" alt="" />
       <canvas id="overlay"></canvas>
     </div>
 
-    <!-- Static HUD chrome (z=5) - all the kV/Mode/mAs trapezoids, gray
-         setting pills, battery panel, SID bar, SSD pill, orange bezel. -->
+    <!-- Static base chrome -->
     <img id="vf-base" src="assets/viewfinder-base.svg" alt="" />
 
-    <!-- Dynamic value overlays (z=6) - just the numbers/text -->
+    <!-- Dynamic overlay graphics -->
+    <img id="ssd-bg"      src="assets/ssd-bg-black.svg"     alt="" />
+    <img id="mode-shield" src="assets/mode-shield-red.svg"  alt="" />
+
+    <!-- kV / mAs fill pills (5 each) -->
+    <img class="pill-fill" id="kv-slot-1" src="assets/kv-pill-fill.svg" alt="" />
+    <img class="pill-fill" id="kv-slot-2" src="assets/kv-pill-fill.svg" alt="" />
+    <img class="pill-fill" id="kv-slot-3" src="assets/kv-pill-fill.svg" alt="" />
+    <img class="pill-fill" id="kv-slot-4" src="assets/kv-pill-fill.svg" alt="" />
+    <img class="pill-fill" id="kv-slot-5" src="assets/kv-pill-fill.svg" alt="" />
+    <img class="pill-fill" id="mas-slot-1" src="assets/mas-pill-fill.svg" alt="" />
+    <img class="pill-fill" id="mas-slot-2" src="assets/mas-pill-fill.svg" alt="" />
+    <img class="pill-fill" id="mas-slot-3" src="assets/mas-pill-fill.svg" alt="" />
+    <img class="pill-fill" id="mas-slot-4" src="assets/mas-pill-fill.svg" alt="" />
+    <img class="pill-fill" id="mas-slot-5" src="assets/mas-pill-fill.svg" alt="" />
+
+    <!-- Value text overlays -->
     <span id="ssd-value" class="value-overlay">--</span>
     <span id="kv-value"  class="value-overlay">60</span>
     <span id="mas-value" class="value-overlay">0.16</span>
     <span id="mode-value" class="value-overlay">DDR</span>
 
-    <!-- Floating SID readout pill -->
     <div id="sid-readout">--</div>
 
-    <!-- Crosshair SVGs (z=7) -->
-    <img id="external-cross" src="assets/external-cross.svg" alt="" />
-    <img id="center-cross"   src="assets/center-cross.svg"   alt="" />
+    <!-- Crosshair group: both elements translate together -->
+    <div id="crosshair">
+      <img id="external-cross" src="assets/external-cross.svg" alt="" />
+      <img id="center-cross"   src="assets/center-cross.svg"   alt="" />
+    </div>
 
-    <!-- Status overlays (z=8..9) -->
     <div class="interlock hidden" id="interlock">&mdash; ALIGN BEAM &mdash;</div>
     <div class="badge-detect" id="badge-detect">
       <div class="big">&#x2316;</div>
       <div>Aim camera at the printed QR target</div>
     </div>
 
-    <!-- Tap zones for cycling values (z=9, pointer-events:auto) -->
     <div class="tap-zone" id="tap-kv"   data-act="kv"></div>
     <div class="tap-zone" id="tap-mode" data-act="mode"></div>
     <div class="tap-zone" id="tap-mas"  data-act="mas"></div>

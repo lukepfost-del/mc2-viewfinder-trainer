@@ -30,18 +30,23 @@ const kvValEl     = document.getElementById('kv-value');
 const masValEl    = document.getElementById('mas-value');
 const modeValEl   = document.getElementById('mode-value');
 const triggerBtn  = document.getElementById('trigger');
+const crosshair   = document.getElementById('crosshair');
 const extCrossImg = document.getElementById('external-cross');
 const ctrCrossImg = document.getElementById('center-cross');
+const ssdBg       = document.getElementById('ssd-bg');
+const modeShield  = document.getElementById('mode-shield');
+const kvSlots  = [1,2,3,4,5].map(i => document.getElementById('kv-slot-'+i));
+const masSlots = [1,2,3,4,5].map(i => document.getElementById('mas-slot-'+i));
 
 // ---- Settings ----
 const SETTINGS = {
   qrPhysicalCm: 9.0,
   activeAreaCm: 21.35,
-  // The "WEIGHT BEARING ZONE" box (the actual active area) spans ~40% of the
-  // full uncropped cassette image's width, centered at ~55% from top
-  // (handle offset). Measured from the rendered cassette image.
-  cassetteImgActiveFrac: 0.40,
-  cassetteImgActiveCy: 0.55,
+  // WEIGHT BEARING ZONE bounds in the cassette image, as fractions.  Tuned
+  // so the active-area outline aligns with the WBZ graphic on screen.
+  cassetteImgActiveFrac: 0.36,
+  cassetteImgActiveCx:   0.485,
+  cassetteImgActiveCy:   0.585,
   minFieldCmPerSid: 0.24,
   sidMin: 30, sidMax: 80,
   ssdMin: 30,
@@ -369,7 +374,7 @@ function applyCassetteTransform(p, l2s) {
   const imgSpanCm = SETTINGS.activeAreaCm / SETTINGS.cassetteImgActiveFrac;
   // Map image px -> cassette local cm
   // active-area center in image px: (Wpx/2, Wpx * cassetteImgActiveCy)
-  const aaCxImg = Wpx / 2;
+  const aaCxImg = Wpx * (SETTINGS.cassetteImgActiveCx ?? 0.5);
   const aaCyImg = Wpx * SETTINGS.cassetteImgActiveCy;
   // px -> cm scale: imgSpanCm / Wpx
   const pxToCm = imgSpanCm / Wpx;
@@ -403,6 +408,19 @@ function clearTransforms() {
 function pts2screen(localPts, l2s) {
   return localPts.map(p => applyH(l2s.H_l_to_s, p.x, p.y));
 }
+// Light up kV / mAs fill pills based on current setting index (40 -> 1 pill,
+// 50 -> 2 pills, ..., 80 -> 5 pills; same pattern for mAs).
+function updateKvMasFills() {
+  const kvIdx  = state.kvOpts.indexOf(state.kv);
+  const masIdx = state.masOpts.indexOf(state.mas);
+  const kvCount  = kvIdx  < 0 ? 0 : (kvIdx  + 1);
+  const masCount = masIdx < 0 ? 0 : (masIdx + 1);
+  for (let i = 0; i < 5; i++) {
+    kvSlots[i].classList.toggle('on', i < kvCount);
+    masSlots[i].classList.toggle('on', i < masCount);
+  }
+}
+
 function pathQuad(quad){
   ctx.beginPath();
   quad.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
@@ -592,24 +610,31 @@ function drawScene() {
     // plane.  Position it via CSS transform each frame so it slides off
     // center when the emitter is off-perpendicular and "snaps" back when
     // perpendicular - matching the IFU description.
+    // Crosshair: outer + center translate together so the outer pills
+    // follow the center "+" as the aim point slides off perpendicular.
     extCrossImg.classList.remove('hidden');
-    extCrossImg.style.opacity = '1';
     ctrCrossImg.classList.remove('hidden');
+    crosshair.style.opacity = '1';
     const aimScreen = applyH(l2s.H_l_to_s, p.aimLocal.x, p.aimLocal.y);
     const dx = aimScreen.x - W / 2;
     const dy = aimScreen.y - H / 2;
-    ctrCrossImg.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-    ctrCrossImg.style.filter = p.inBounds ? 'none' : 'invert(36%) sepia(95%) saturate(7000%) hue-rotate(340deg)';
+    crosshair.style.transform =
+      `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    const filter = p.inBounds
+      ? 'none'
+      : 'invert(36%) sepia(95%) saturate(7000%) hue-rotate(340deg)';
+    extCrossImg.style.filter = filter;
+    ctrCrossImg.style.filter = filter;
 
     // HUD readouts
     const ssdCm = p.sidCm - SETTINGS.patientThicknessCm;
     ssdVal.textContent = ssdCm.toFixed(0);
     const sidOk = p.sidCm >= SETTINGS.sidMin && p.sidCm <= SETTINGS.sidMax;
     const ssdOk = ssdCm >= SETTINGS.ssdMin;
-    // SSD pill background is in viewfinder-base.svg.  Recolor the value
-    // text only - dark green-pill text when OK, white when bad (and we
-    // overlay a red tint via the interlock if SSD is critical).
-    ssdVal.style.color = ssdOk ? '#042312' : '#fff';
+    // SSD pill background swaps green / red / black based on SSD lockout
+    // state.  Value text stays white per design.
+    ssdVal.style.color = '#fff';
+    ssdBg.src = ssdOk ? 'assets/ssd-bg-green.svg' : 'assets/ssd-bg-red.svg';
     updateSidGauge(p.sidCm, sidOk);
 
     // Interlock priority
@@ -623,11 +648,17 @@ function drawScene() {
     else { interlock.classList.add('hidden'); }
 
     allowed = p.inBounds && sidOk && ssdOk;
+    // Mode shield green when capture is allowed, red otherwise.
+    modeShield.src = allowed ? 'assets/mode-shield-green.svg'
+                             : 'assets/mode-shield-red.svg';
     badgeDetect.classList.add('hidden');
   } else {
     clearTransforms();
     ssdVal.textContent = '--';
-    ssdVal.style.color = '#042312';
+    ssdVal.style.color = '#fff';
+    ssdBg.src = 'assets/ssd-bg-black.svg';
+    modeShield.src = 'assets/mode-shield-red.svg';
+    crosshair.style.opacity = '0.45';
     updateSidGauge(NaN, false);
     // No QR: dim external cross, hide center cross
     extCrossImg.classList.remove('hidden');
@@ -687,15 +718,19 @@ function bindControls() {
       if (act === 'kv') {
         state.kv = stepArr(state.kvOpts, state.kv, 1);
         kvValEl.textContent = state.kv;
+        updateKvMasFills();
       } else if (act === 'mas') {
         state.mas = stepArr(state.masOpts, state.mas, 1);
         masValEl.textContent = state.mas;
+        updateKvMasFills();
       } else if (act === 'mode') {
         state.modeIdx = (state.modeIdx + 1) % state.modes.length;
         modeValEl.textContent = state.modes[state.modeIdx];
       }
     });
   });
+  // Initial fill state for kV / mAs slots
+  updateKvMasFills();
   triggerBtn.addEventListener('click', () => {
     if (!triggerBtn.classList.contains('armed')) {
       if (navigator.vibrate) try { navigator.vibrate([20,40,20]); } catch(_) {}
