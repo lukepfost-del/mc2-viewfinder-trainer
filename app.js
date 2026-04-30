@@ -1,10 +1,10 @@
 'use strict';
 
 // =============================================================================
-// MC2 Viewfinder Trainer - app logic
-// Pose: jsQR -> 4-point homography -> tilt + SID + aim point
-// Stability: One-Euro filter on QR corners
-// UI: Viewfinder-faithful crosses, collimation pillow, gauges per IMG_8637.MOV
+// MC2 Viewfinder Trainer v3
+// - Auto-only collimator with fit-to-bounds field sizing (per IFU + user notes)
+// - Cassette image overlay via CSS matrix3d riding on the QR plane
+// - Real SVG-derived external cross + collimation pillow geometry
 // =============================================================================
 
 // ===== UI elements =====
@@ -13,6 +13,7 @@ const startBtn    = document.getElementById('start-btn');
 const calibInput  = document.getElementById('calib-input');
 const thickInput  = document.getElementById('thick-input');
 const video       = document.getElementById('video');
+const cassetteImg = document.getElementById('cassette');
 const overlay     = document.getElementById('overlay');
 const flash       = document.getElementById('flash');
 const ctx         = overlay.getContext('2d');
@@ -27,14 +28,21 @@ const badgeDetect = document.getElementById('badge-detect');
 const kvValEl     = document.getElementById('kv-val');
 const masValEl    = document.getElementById('mas-val');
 const modeValEl   = document.getElementById('mode-val');
-const btnCollim   = document.getElementById('btn-collim');
 const triggerBtn  = document.getElementById('trigger');
 const diag        = document.getElementById('diag');
 
 // ===== Settings =====
 const SETTINGS = {
   qrPhysicalCm: 9.0,
+  // Real MC2 active area is 21.35 x 21.35 cm.
   activeAreaCm: 21.35,
+  // The cropped cassette image's active-area square spans ~65% of the image.
+  // Project the whole image to (activeAreaCm / 0.65) cm so the inner active
+  // area lines up with the trainer's active-area math.
+  cassetteImgActiveFrac: 0.65,
+  // Min collimator field projects to 0.24 * SID cm at the cassette plane
+  // (from IFU table - the 0% row scales linearly with SID at 0.24 cm/cm).
+  minFieldCmPerSid: 0.24,
   sidMin: 30, sidMax: 80,
   ssdMin: 30,
   patientThicknessCm: 5,
@@ -45,17 +53,17 @@ const SETTINGS = {
   oeBeta: 0.04,
   oeDerivCutoff: 1.0,
   procMaxDim: 720,
+  cassetteImgPx: 600, // natural pixel size of cassette.webp
 };
 
 const COLORS = {
   green:       '#077B51',
   greenPill:   '#3DB06B',
   orange:      '#EE6C4D',
-  centerWhite: '#FFFFFF',
-  centerStrk:  '#000000',
-  active:      'rgba(180, 220, 255, 0.18)',
+  centerBlack: '#000000',
+  active:      'rgba(180, 220, 255, 0.10)',
   outBoundsBg: 'rgba(255, 71, 87, 0.10)',
-  outline:     'rgba(255,255,255,0.35)',
+  outline:     'rgba(255,255,255,0.30)',
 };
 
 // ===== State =====
@@ -64,15 +72,12 @@ const state = {
   kv: 60, kvOpts: [40,50,60,70,80],
   mas: 0.16, masOpts: [0.04,0.08,0.16,0.25,0.40],
   modeIdx: 1, modes: ['Single','DDR','Fluoro','Photo'],
-  autoCollim: true,
   qr: null, pose: null, lastDetectT: 0,
   frameW: 0, frameH: 0,
   perpAlpha: 0,
   capturing: false,
   prevAllowed: false,
   meanLuma: 0,
-  smoothSidCm: null,
-  smoothTiltDeg: null,
 };
 
 // =============================================================================
@@ -206,7 +211,7 @@ function detectQR() {
 }
 
 // =============================================================================
-// Geometry: homography, inverse, tilt-from-H
+// Geometry: 8x8 solver, homography, inverse, tilt-from-H, quad-to-quad-3D
 // =============================================================================
 function solve8(A, b) {
   const n = 8;
@@ -267,21 +272,15 @@ function lerp(a,b,t){ return a + (b-a)*t; }
 
 function tiltFromH(H, fx, fy, cx, cy) {
   const Hn = [
-    (H[0] - cx*H[6]) / fx,
-    (H[1] - cx*H[7]) / fx,
-    (H[2] - cx*H[8]) / fx,
-    (H[3] - cy*H[6]) / fy,
-    (H[4] - cy*H[7]) / fy,
-    (H[5] - cy*H[8]) / fy,
+    (H[0] - cx*H[6]) / fx, (H[1] - cx*H[7]) / fx, (H[2] - cx*H[8]) / fx,
+    (H[3] - cy*H[6]) / fy, (H[4] - cy*H[7]) / fy, (H[5] - cy*H[8]) / fy,
     H[6], H[7], H[8],
   ];
-  const r1 = [Hn[0], Hn[3], Hn[6]];
-  const r2 = [Hn[1], Hn[4], Hn[7]];
+  const r1 = [Hn[0], Hn[3], Hn[6]], r2 = [Hn[1], Hn[4], Hn[7]];
   const len1 = Math.hypot(r1[0],r1[1],r1[2]) || 1;
   const len2 = Math.hypot(r2[0],r2[1],r2[2]) || 1;
   const lam = 2 / (len1 + len2);
-  const r1n = r1.map(v=>v*lam);
-  const r2n = r2.map(v=>v*lam);
+  const r1n = r1.map(v=>v*lam), r2n = r2.map(v=>v*lam);
   const n = [
     r1n[1]*r2n[2] - r1n[2]*r2n[1],
     r1n[2]*r2n[0] - r1n[0]*r2n[2],
@@ -292,6 +291,33 @@ function tiltFromH(H, fx, fy, cx, cy) {
   return Math.acos(Math.max(0, Math.min(1, nz))) * 180 / Math.PI;
 }
 
+// Quad-to-quad: returns the 8 unknowns of a 3x3 homography (h00..h21, with h22=1)
+// that maps the 4 source points to the 4 destination points.  Used to drive
+// CSS `matrix3d` for the cassette image overlay.
+function quadHomography(from, to) {
+  return homography4(from, to); // already returns the 9-element row-major H
+}
+// Convert a 3x3 homography mapping the source rect (0,0..W,H) to a CSS matrix3d
+// transform string. Element with width=W, height=H, transform-origin: 0 0 will
+// land its 4 corners on the 4 destination points.
+function matrix3dFromH(H) {
+  // CSS matrix3d takes 16 values column-major: m11,m12,m13,m14, m21,...
+  // Mapping a 3x3 affine homography H (row-major a..i) to 4x4:
+  //   m11=a, m12=d, m13=0, m14=g
+  //   m21=b, m22=e, m23=0, m24=h
+  //   m31=0, m32=0, m33=1, m34=0
+  //   m41=c, m42=f, m43=0, m44=i
+  const a=H[0],b=H[1],c=H[2], d=H[3],e=H[4],f=H[5], g=H[6],h=H[7],i=H[8];
+  return 'matrix3d(' +
+    [ a,d,0,g,
+      b,e,0,h,
+      0,0,1,0,
+      c,f,0,i ].join(',') + ')';
+}
+
+// =============================================================================
+// Pose: SID, tilt, aim point, in-bounds, collimator field with fit-to-bounds
+// =============================================================================
 function buildPose(qr) {
   const q = SETTINGS.qrPhysicalCm / 2;
   const qrLocal = [
@@ -317,38 +343,60 @@ function buildPose(qr) {
   const t = performance.now();
   sidCm  = sidFilter.filter(sidCm, t);
   tiltDeg = tiltFilter.filter(tiltDeg, t);
-  state.smoothSidCm = sidCm;
-  state.smoothTiltDeg = tiltDeg;
 
   const aimImg = { x: state.frameW / 2, y: state.frameH / 2 };
   const aimLocal = applyH(H_img_to_local, aimImg.x, aimImg.y);
 
+  // Active area in cassette local cm (centered on QR center)
   const half = SETTINGS.activeAreaCm / 2;
   const activeLocal = [
     { x:-half, y:-half }, { x: half, y:-half }, { x: half, y: half }, { x:-half, y: half },
   ];
   const activeImg = activeLocal.map(p => applyH(H_local_to_img, p.x, p.y));
 
-  const perpFactor = clamp01(1 - tiltDeg / SETTINGS.perpFadeMaxDeg);
-  const aimRadius  = Math.hypot(aimLocal.x, aimLocal.y);
-  const centerFactor = clamp01(1 - aimRadius / half);
-  const maxField = SETTINGS.activeAreaCm;
-  const fieldCm = state.autoCollim
-    ? maxField * (0.45 + 0.55 * Math.min(perpFactor, centerFactor))
-    : maxField * 0.4;
+  // ---------- Auto-collimator with fit-to-bounds (per IFU + user notes) ----------
+  // The auto collimator opens as wide as it can while keeping the projected
+  // X-ray rectangle inside the active area. The smallest possible field at
+  // a given SID is approximately `0.24 * SID` cm (from IFU table, 0% row).
+  // We're out of bounds only when even the minimum field can't fit, which
+  // happens when the aim point is so close to or past the active-area edge
+  // that |aim| > half - minFieldHalf in either axis.
+  const minFieldCm  = SETTINGS.minFieldCmPerSid * sidCm;
+  const minHalf     = minFieldCm / 2;
+  const maxFitHalfX = half - Math.abs(aimLocal.x);
+  const maxFitHalfY = half - Math.abs(aimLocal.y);
+  const maxFitHalf  = Math.min(maxFitHalfX, maxFitHalfY);
+  const willFit     = maxFitHalf >= minHalf;
+  // Field grows toward full active area as you center; clamps to fit-bound;
+  // floors at minHalf so the visible rectangle never disappears while in bounds.
+  const fieldHalf = willFit ? Math.max(minHalf, Math.min(half, maxFitHalf)) : 0;
+  const fieldCm = fieldHalf * 2;
+  const inBounds = willFit;
+
+  // Cassette image projection: project the whole image such that its inner
+  // active-area square (cassetteImgActiveFrac of image) maps to activeAreaCm.
+  const imgSpanCm = SETTINGS.activeAreaCm / SETTINGS.cassetteImgActiveFrac;
+  const imgHalf   = imgSpanCm / 2;
+  const cassetteLocal = [
+    { x:-imgHalf, y:-imgHalf }, { x: imgHalf, y:-imgHalf },
+    { x: imgHalf, y: imgHalf }, { x:-imgHalf, y: imgHalf },
+  ];
 
   return {
     H_local_to_img, H_img_to_local,
     sidCm, tiltDeg,
     aimLocal, aimImg,
     activeLocal, activeImg,
-    fieldCm, maxField, half,
+    cassetteLocal,
+    fieldCm, fieldHalf, half,
+    minFieldCm, maxFitHalf,
+    inBounds, willFit,
     qrImg,
   };
 }
 
 // =============================================================================
-// Rendering
+// Frame -> screen mapping (object-fit: cover)
 // =============================================================================
 function frameToScreenScale() {
   const vw = video.videoWidth, vh = video.videoHeight;
@@ -364,53 +412,42 @@ function frameToScreenScale() {
   });
 }
 
-function pathQuad(quad){
-  ctx.beginPath();
-  quad.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
-  ctx.closePath();
-}
+// =============================================================================
+// SVG-derived primitives (geometry sourced from External cross.svg and
+// Collimation Line.svg in the Viewfinder asset set)
+// =============================================================================
 
-function drawPillow(quad, bowFraction, stroke, lineWidth, fill) {
-  const c = centroid(quad);
-  ctx.beginPath();
-  for (let i = 0; i < 4; i++) {
-    const a = quad[i];
-    const b = quad[(i+1) % 4];
-    const mid = { x: (a.x+b.x)/2, y: (a.y+b.y)/2 };
-    let nx = mid.x - c.x, ny = mid.y - c.y;
-    const nlen = Math.hypot(nx, ny) || 1;
-    nx /= nlen; ny /= nlen;
-    const edgeLen = Math.hypot(b.x-a.x, b.y-a.y);
-    const bow = edgeLen * bowFraction;
-    const cp = { x: mid.x + nx * bow, y: mid.y + ny * bow };
-    if (i === 0) ctx.moveTo(a.x, a.y);
-    ctx.quadraticCurveTo(cp.x, cp.y, b.x, b.y);
-  }
-  ctx.closePath();
-  if (fill)   { ctx.fillStyle   = fill;   ctx.fill();   }
-  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lineWidth; ctx.stroke(); }
-}
-function centroid(pts){
-  let sx=0, sy=0;
-  for (const p of pts) { sx += p.x; sy += p.y; }
-  return { x: sx/pts.length, y: sy/pts.length };
-}
-
-function drawExternalCross(cx, cy, armLen, gap, color, alpha) {
+// External cross: 4 pill-shaped arms (4 wide, ~38 long) with a notch around
+// the center matching the SVG (gap of 18 from center).  Drawn in screen pixels.
+function drawExternalCross(cx, cy, scale, color, alpha) {
+  if (alpha <= 0.02) return;
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.lineCap = 'round';
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - gap); ctx.lineTo(cx, cy - gap - armLen);
-  ctx.moveTo(cx, cy + gap); ctx.lineTo(cx, cy + gap + armLen);
-  ctx.moveTo(cx - gap, cy); ctx.lineTo(cx - gap - armLen, cy);
-  ctx.moveTo(cx + gap, cy); ctx.lineTo(cx + gap + armLen, cy);
-  ctx.stroke();
+  ctx.fillStyle = color;
+  // Each arm = a 4x36 pill (rounded rect) starting at the gap distance from cx,cy
+  function pill(x0, y0, w, h) {
+    const r = Math.min(w, h) / 2;
+    ctx.beginPath();
+    ctx.moveTo(x0 + r, y0);
+    ctx.lineTo(x0 + w - r, y0);
+    ctx.arc(x0 + w - r, y0 + r, r, -Math.PI/2, Math.PI/2);
+    ctx.lineTo(x0 + r, y0 + h);
+    ctx.arc(x0 + r, y0 + r, r, Math.PI/2, -Math.PI/2);
+    ctx.closePath();
+    ctx.fill();
+  }
+  const gap   = 18 * scale;
+  const armW  = 4  * scale;
+  const armL  = 36 * scale;
+  // Up / Down (vertical pills) and Left / Right (horizontal pills)
+  pill(cx - armW/2, cy - gap - armL, armW, armL);          // up
+  pill(cx - armW/2, cy + gap,        armW, armL);          // down
+  pill(cx - gap - armL, cy - armW/2, armL, armW);          // left
+  pill(cx + gap, cy - armW/2,        armL, armW);          // right
   ctx.restore();
 }
 
+// Center plus + ring (small "snap" mark at the beam landing point).
 function drawCenterPlus(cx, cy, color) {
   ctx.save();
   ctx.lineCap = 'round';
@@ -427,6 +464,40 @@ function drawCenterPlus(cx, cy, color) {
   ctx.restore();
 }
 
+// Collimation pillow: 4 quadratic-bezier edges bowing slightly outward, in the
+// MC2 collimation green (#077B51).  `quad` is the 4 screen-space corners of
+// the field rectangle; `bowFraction` is how far the bezier control point sits
+// out from each edge midpoint, as a fraction of edge length.
+function drawCollimationPillow(quad, bowFraction, lineWidth, color) {
+  const c = centroid(quad);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i];
+    const b = quad[(i+1) % 4];
+    const mid = { x: (a.x+b.x)/2, y: (a.y+b.y)/2 };
+    let nx = mid.x - c.x, ny = mid.y - c.y;
+    const nlen = Math.hypot(nx, ny) || 1;
+    nx /= nlen; ny /= nlen;
+    const edgeLen = Math.hypot(b.x-a.x, b.y-a.y);
+    const bow = edgeLen * bowFraction;
+    const cp = { x: mid.x + nx * bow, y: mid.y + ny * bow };
+    if (i === 0) ctx.moveTo(a.x, a.y);
+    ctx.quadraticCurveTo(cp.x, cp.y, b.x, b.y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+function centroid(pts){
+  let sx=0, sy=0;
+  for (const p of pts) { sx += p.x; sy += p.y; }
+  return { x: sx/pts.length, y: sy/pts.length };
+}
+
 function drawCornerTicks(quad, color, len) {
   ctx.save();
   ctx.strokeStyle = color;
@@ -435,8 +506,8 @@ function drawCornerTicks(quad, color, len) {
   for (let i = 0; i < 4; i++) {
     const a = quad[i];
     const b = quad[(i+1)%4];
-    const c = quad[(i+3)%4];
-    const dab = norm(sub(b,a)); const dac = norm(sub(c,a));
+    const c2 = quad[(i+3)%4];
+    const dab = norm(sub(b,a)); const dac = norm(sub(c2,a));
     ctx.beginPath();
     ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + dab.x*len, a.y + dab.y*len);
     ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + dac.x*len, a.y + dac.y*len);
@@ -457,6 +528,26 @@ function drawEdgeRing(W, H, color) {
   ctx.restore();
 }
 
+// =============================================================================
+// Render
+// =============================================================================
+function applyCassetteTransform(p, map) {
+  // Compute screen-space corners of the cassette image quad and derive the
+  // homography from natural-image coords (0..px, 0..px) to those 4 corners.
+  const Wpx = SETTINGS.cassetteImgPx, Hpx = SETTINGS.cassetteImgPx;
+  const screenCorners = p.cassetteLocal.map(pt => map(applyH(p.H_local_to_img, pt.x, pt.y)));
+  const src = [
+    { x: 0,   y: 0 },
+    { x: Wpx, y: 0 },
+    { x: Wpx, y: Hpx },
+    { x: 0,   y: Hpx },
+  ];
+  const H = quadHomography(src, screenCorners);
+  if (!H) return;
+  cassetteImg.style.transform = matrix3dFromH(H);
+  cassetteImg.classList.add('show');
+}
+
 function drawScene() {
   const W = window.innerWidth, H = window.innerHeight;
   ctx.clearRect(0,0,W,H);
@@ -468,13 +559,12 @@ function drawScene() {
 
   if (state.pose && map) {
     const p = state.pose;
-    const qrScreen     = p.qrImg.map(map);
     const activeScreen = p.activeImg.map(map);
 
     const aimImgPt = applyH(p.H_local_to_img, p.aimLocal.x, p.aimLocal.y);
     const aimScreen = map(aimImgPt);
 
-    const fHalf = p.fieldCm / 2;
+    const fHalf = p.fieldHalf;
     const fieldLocal = [
       { x: p.aimLocal.x - fHalf, y: p.aimLocal.y - fHalf },
       { x: p.aimLocal.x + fHalf, y: p.aimLocal.y - fHalf },
@@ -482,46 +572,45 @@ function drawScene() {
       { x: p.aimLocal.x - fHalf, y: p.aimLocal.y + fHalf },
     ];
     const fieldScreen = fieldLocal.map(pt => map(applyH(p.H_local_to_img, pt.x, pt.y)));
+    inBounds = p.inBounds;
 
-    inBounds = Math.abs(p.aimLocal.x) <= p.half && Math.abs(p.aimLocal.y) <= p.half;
+    // Cassette image: project onto the cassette plane
+    applyCassetteTransform(p, map);
 
+    // Light tint over the active area to read state at a glance
     pathQuad(activeScreen);
     ctx.fillStyle = inBounds ? COLORS.active : COLORS.outBoundsBg;
     ctx.fill();
 
-    pathQuad(qrScreen);
-    ctx.strokeStyle = COLORS.outline;
-    ctx.lineWidth = 1.0;
-    ctx.stroke();
-
+    // Active-area corner ticks (green when capture allowed, red otherwise)
     drawCornerTicks(activeScreen, inBounds ? COLORS.green : '#ff4757', 22);
 
-    if (inBounds) {
-      drawPillow(fieldScreen, 0.025, COLORS.green, 3, null);
+    // Collimation pillow (only when in bounds)
+    if (inBounds && fHalf > 0) {
+      drawCollimationPillow(fieldScreen, 0.025, 3, COLORS.green);
     }
 
+    // Snap-and-complete center mark: small + ring at beam landing point;
+    // large external cross at screen center fades in below perpThresholdDeg
+    // and is fully gone by perpFadeMaxDeg.
     const targetAlpha = clamp01(
       1 - (p.tiltDeg - SETTINGS.perpThresholdDeg) /
           (SETTINGS.perpFadeMaxDeg - SETTINGS.perpThresholdDeg)
     );
     state.perpAlpha = lerp(state.perpAlpha, targetAlpha, 0.25);
 
-    drawCenterPlus(aimScreen.x, aimScreen.y, inBounds ? '#000' : '#ff4757');
+    drawCenterPlus(aimScreen.x, aimScreen.y, inBounds ? COLORS.centerBlack : '#ff4757');
+    drawExternalCross(cx, cy, 1.0, COLORS.centerBlack, state.perpAlpha);
 
-    if (state.perpAlpha > 0.02) {
-      drawExternalCross(cx, cy, 38, 18, '#000', state.perpAlpha);
-    }
-
+    // HUD readouts
     const sidCm = p.sidCm;
     const ssdCm = sidCm - SETTINGS.patientThicknessCm;
     sidVal.textContent  = sidCm.toFixed(0);
     ssdVal.textContent  = ssdCm.toFixed(0);
     tiltVal.textContent = p.tiltDeg.toFixed(0);
 
-    setPillState(pillSID,
-      sidCm < SETTINGS.sidMin || sidCm > SETTINGS.sidMax ? 'bad' : 'good');
-    setPillState(pillSSD,
-      ssdCm < SETTINGS.ssdMin ? 'bad' : 'good');
+    setPillState(pillSID, sidCm < SETTINGS.sidMin || sidCm > SETTINGS.sidMax ? 'bad' : 'good');
+    setPillState(pillSSD, ssdCm < SETTINGS.ssdMin ? 'bad' : 'good');
     setPillState(pillTilt,
       p.tiltDeg <= SETTINGS.perpThresholdDeg ? 'good'
         : p.tiltDeg <= SETTINGS.perpFadeMaxDeg ? 'warn' : 'bad');
@@ -545,6 +634,7 @@ function drawScene() {
 
     badgeDetect.classList.add('hidden');
   } else {
+    cassetteImg.classList.remove('show');
     ssdVal.textContent  = '--';
     sidVal.textContent  = '--';
     tiltVal.textContent = '--';
@@ -565,12 +655,14 @@ function drawScene() {
     }
 
     state.perpAlpha = 0;
-    drawExternalCross(cx, cy, 38, 18, 'rgba(255,255,255,0.55)', 1);
+    drawExternalCross(cx, cy, 1.0, 'rgba(255,255,255,0.55)', 1);
     badgeDetect.classList.remove('hidden');
   }
 
+  // Grayscale-outside-active-area effect (still useful even with cassette overlay)
   video.classList.toggle('dim', !inBounds);
 
+  // Edge ring as overall capture-allowed indicator
   const ringColor = allowed
     ? 'rgba(41, 211, 106, 0.95)'
     : (state.pose ? 'rgba(255, 71, 87, 0.7)' : 'rgba(255,179,2,0.6)');
@@ -586,6 +678,12 @@ function drawScene() {
 function setPillState(el, cls) {
   el.classList.remove('good','warn','bad');
   if (cls) el.classList.add(cls);
+}
+
+function pathQuad(quad){
+  ctx.beginPath();
+  quad.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
+  ctx.closePath();
 }
 
 // =============================================================================
@@ -609,26 +707,21 @@ function loop() {
 }
 
 // =============================================================================
-// Controls
+// Controls (auto-only collimator; no A/M toggle)
 // =============================================================================
 function bindControls() {
   document.querySelectorAll('[data-act]').forEach(b => {
     b.addEventListener('click', e => {
       const act = e.currentTarget.dataset.act;
-      if (act === 'kv+') state.kv = stepArr(state.kvOpts, state.kv,  1);
-      if (act === 'kv-') state.kv = stepArr(state.kvOpts, state.kv, -1);
+      if (act === 'kv+')  state.kv  = stepArr(state.kvOpts,  state.kv,   1);
+      if (act === 'kv-')  state.kv  = stepArr(state.kvOpts,  state.kv,  -1);
       if (act === 'mas+') state.mas = stepArr(state.masOpts, state.mas,  1);
       if (act === 'mas-') state.mas = stepArr(state.masOpts, state.mas, -1);
-      if (act === 'mode') state.modeIdx = (state.modeIdx+1) % state.modes.length;
-      kvValEl.textContent = state.kv;
+      if (act === 'mode') state.modeIdx = (state.modeIdx + 1) % state.modes.length;
+      kvValEl.textContent  = state.kv;
       masValEl.textContent = state.mas;
       modeValEl.textContent = state.modes[state.modeIdx];
     });
-  });
-  btnCollim.addEventListener('click', () => {
-    state.autoCollim = !state.autoCollim;
-    btnCollim.classList.toggle('on', state.autoCollim);
-    btnCollim.textContent = state.autoCollim ? 'A' : 'M';
   });
   triggerBtn.addEventListener('click', () => {
     if (!triggerBtn.classList.contains('armed')) {
@@ -642,8 +735,10 @@ function bindControls() {
     setTimeout(()=>{ flash.classList.remove('on'); state.capturing=false; }, 220);
   });
   let pressT;
-  triggerBtn.addEventListener('touchstart', () => { pressT = setTimeout(()=>diag.classList.toggle('hidden'), 1500); });
-  triggerBtn.addEventListener('touchend',   () => clearTimeout(pressT));
+  triggerBtn.addEventListener('touchstart', () => {
+    pressT = setTimeout(()=>diag.classList.toggle('hidden'), 1500);
+  });
+  triggerBtn.addEventListener('touchend', () => clearTimeout(pressT));
 }
 function stepArr(arr, val, dir){
   const i = arr.indexOf(val);

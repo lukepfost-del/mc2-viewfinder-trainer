@@ -41,6 +41,8 @@
   #app { position: fixed; inset: 0; background: #000; }
   #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; transition: filter 200ms ease-out; }
   #video.dim { filter: grayscale(1) brightness(0.7) contrast(0.95); }
+  #cassette { position: absolute; left: 0; top: 0; width: 600px; height: 600px; transform-origin: 0 0; pointer-events: none; opacity: 0; transition: opacity 200ms; mix-blend-mode: multiply; will-change: transform; }
+  #cassette.show { opacity: 0.92; }
   #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   .hud { position: absolute; left: 0; right: 0; pointer-events: none; font-variant-numeric: tabular-nums; }
   .hud-top { top: 0; padding: max(env(safe-area-inset-top, 0px), 8px) 12px 10px; display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; background: linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0)); }
@@ -101,6 +103,7 @@
 
 <div id="app">
   <video id="video" autoplay muted playsinline webkit-playsinline></video>
+  <img id="cassette" src="assets/cassette.webp" alt="" />
   <canvas id="overlay"></canvas>
   <div id="flash"></div>
   <div class="hud hud-top">
@@ -111,7 +114,6 @@
     <div class="interlock-wrap"><div class="interlock hidden" id="interlock">&mdash; ALIGN X-RAY BEAM &mdash;</div></div>
     <div class="top-right">
       <div class="pill" id="pill-sid"><span class="label">SID</span><span class="val"><span id="sid-val">--</span> cm</span></div>
-      <button class="menu-btn toggle on" id="btn-collim" title="Auto / Manual Collimator">A</button>
     </div>
   </div>
   <div class="trigger-zone"><button class="trigger" id="trigger" aria-label="Trigger">EXPOSE</button></div>
