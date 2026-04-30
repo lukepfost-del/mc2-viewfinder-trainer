@@ -14,7 +14,9 @@ const startScreen = document.getElementById('start-screen');
 const startBtn    = document.getElementById('start-btn');
 const calibInput  = document.getElementById('calib-input');
 const thickInput  = document.getElementById('thick-input');
-const viewfinder  = document.getElementById('viewfinder');
+// v8: overlay/canvas/cassette all live inside the camera-window (the central
+// 56% region of the viewfinder square that mirrors Official Viewfinder.svg).
+const viewfinder  = document.getElementById('camera-window');
 const video       = document.getElementById('video');
 const cassetteImg = document.getElementById('cassette-img');
 const overlay     = document.getElementById('overlay');
@@ -23,12 +25,12 @@ const ctx         = overlay.getContext('2d');
 const ssdVal      = document.getElementById('ssd-val');
 const pillSSD     = document.getElementById('pill-ssd');
 const sidReadout  = document.getElementById('sid-readout');
-const sidMarker   = document.getElementById('sid-marker');
 const interlock   = document.getElementById('interlock');
 const badgeDetect = document.getElementById('badge-detect');
 const kvValEl     = document.getElementById('kv-val');
 const masValEl    = document.getElementById('mas-val');
 const modeValEl   = document.getElementById('mode-val');
+const ctrlMode    = document.getElementById('ctrl-mode');
 const triggerBtn  = document.getElementById('trigger');
 
 // ---- Settings ----
@@ -507,32 +509,23 @@ function drawEdgeRing(W, H, color) {
   ctx.restore();
 }
 
-// SID gauge marker positioning
+// SID gauge: position the floating readout pill on the vertical bar.
+// Bar runs from top 21.53% to top 84.03% of the LCD (62.5% tall).
+// Map SID 30..80 cm to that range; clamp out-of-range to the bar ends.
 function updateSidGauge(sidCm, ok) {
-  // Marker top in % within #sid-gauge container.  Map SID 30 -> top, 80 -> bottom
-  // of the active band (which starts at top:56px and ends at bottom:32px).
-  // Use the gauge's full height: container is 100% - 16px tall.
-  // Bar-active occupies top:56px to bottom:32px within the container.
-  // For a fluid mapping, position marker between those with linear interp.
   if (!Number.isFinite(sidCm)) {
-    sidMarker.style.top  = '50%';
-    sidReadout.style.top = '50%';
+    sidReadout.style.top = '47.83%';
     sidReadout.textContent = '--';
-    sidMarker.classList.remove('bad');
     sidReadout.classList.remove('bad');
     return;
   }
-  // Clamp 30..80 to active band, but allow extension above/below
-  const range = 80 - 30;
-  const t = clamp01((sidCm - 30) / range); // 0 at 30, 1 at 80
-  // Map t=0 to ~56px from top, t=1 to ~ (containerH - 32px - 24px /* readout */) from top
-  const containerH = document.getElementById('sid-gauge').clientHeight;
-  const yTopPx = 56 + t * (containerH - 56 - 32);
-  sidMarker.style.top = yTopPx + 'px';
-  sidReadout.style.top = (yTopPx - 24) + 'px';
+  const t = clamp01((sidCm - 30) / (80 - 30)); // 0 at 30, 1 at 80
+  // Bar active range is 31.94%..73.61% (40% tall).  Map SID to that.
+  const topPct = 31.94 + t * (73.61 - 31.94);
+  // Center the readout pill (4.86% tall) on that y position.
+  sidReadout.style.top = (topPct - 4.86 / 2) + '%';
   sidReadout.textContent = sidCm.toFixed(0);
-  if (ok) { sidMarker.classList.remove('bad'); sidReadout.classList.remove('bad'); }
-  else    { sidMarker.classList.add('bad');    sidReadout.classList.add('bad'); }
+  sidReadout.classList.toggle('bad', !ok);
 }
 
 // ============================================================================
@@ -649,17 +642,24 @@ function loop() {
 function bindControls() {
   document.querySelectorAll('[data-act]').forEach(b => {
     b.addEventListener('click', e => {
+      e.stopPropagation();
       const act = e.currentTarget.dataset.act;
       if (act === 'kv+')  state.kv  = stepArr(state.kvOpts,  state.kv,   1);
       if (act === 'kv-')  state.kv  = stepArr(state.kvOpts,  state.kv,  -1);
       if (act === 'mas+') state.mas = stepArr(state.masOpts, state.mas,  1);
       if (act === 'mas-') state.mas = stepArr(state.masOpts, state.mas, -1);
-      if (act === 'mode') state.modeIdx = (state.modeIdx + 1) % state.modes.length;
       kvValEl.textContent  = state.kv;
       masValEl.textContent = state.mas;
-      modeValEl.textContent = state.modes[state.modeIdx];
     });
   });
+  // Tap the orange mode shield to cycle modes.
+  if (ctrlMode) {
+    ctrlMode.style.pointerEvents = 'auto';
+    ctrlMode.addEventListener('click', () => {
+      state.modeIdx = (state.modeIdx + 1) % state.modes.length;
+      modeValEl.textContent = state.modes[state.modeIdx];
+    });
+  }
   triggerBtn.addEventListener('click', () => {
     if (!triggerBtn.classList.contains('armed')) {
       if (navigator.vibrate) try { navigator.vibrate([20,40,20]); } catch(_) {}
