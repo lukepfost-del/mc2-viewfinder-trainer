@@ -8,9 +8,10 @@
 <style>
   :root {
     --green: #29d36a;
+    --green-pill: #3DB06B;
     --red: #ff4757;
-    --amber: #ffb302;
-    --blue: #2ea0ff;
+    --orange: #EE6C4D;
+    --collim: #077B51;
     --bg: #000;
     --panel: rgba(0,0,0,0.55);
     --text: #f3f4f6;
@@ -24,10 +25,7 @@
     overflow: hidden; touch-action: none;
     user-select: none; -webkit-user-select: none;
   }
-  #start-screen { position: fixed; inset: 0; z-index: 50;
-    background: linear-gradient(180deg, #0b0f17 0%, #000 100%);
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 24px; text-align: center; overflow-y: auto; }
+  #start-screen { position: fixed; inset: 0; z-index: 50; background: linear-gradient(180deg, #0b0f17 0%, #000 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; overflow-y: auto; }
   #start-screen.hidden { display: none; }
   #start-screen h1 { margin: 0 0 8px 0; font-size: 22px; letter-spacing: 1px; }
   #start-screen .sub { color: var(--muted); font-size: 13px; max-width: 380px; line-height: 1.5; }
@@ -36,48 +34,188 @@
   #start-screen .calib label { display:block; font-size:12px; color:#d1d5db; margin-bottom:6px; }
   #start-screen .calib input { width: 100%; padding: 10px 12px; font-size: 16px; background: #0b0f17; color: var(--text); border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; }
   #start-screen .btn { margin-top: 18px; background: var(--green); color: #04130a; font-weight: 700; border: 0; border-radius: 12px; padding: 14px 22px; font-size: 15px; letter-spacing: 0.5px; }
-  #start-screen .btn:active { transform: scale(0.98); }
   #start-screen .small { margin-top: 14px; font-size: 11px; color: var(--muted); max-width: 380px; }
-  #app { position: fixed; inset: 0; background: #000; }
-  #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; transition: filter 200ms ease-out; }
-  #video.dim { filter: grayscale(1) brightness(0.7) contrast(0.95); }
-  #cassette { position: absolute; left: 0; top: 0; width: 600px; height: 600px; transform-origin: 0 0; pointer-events: none; opacity: 0; transition: opacity 200ms; mix-blend-mode: multiply; will-change: transform; }
-  #cassette.show { opacity: 0.92; }
+
+  /* ---------- Square viewfinder layout ---------- */
+  #app { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; align-items: stretch; }
+  #viewfinder {
+    position: relative;
+    width: 100vw;
+    /* Square viewfinder: side = min(vw, vh - controlsHeight). We set side
+       = min(100vw, 100vh - 160px) via aspect-ratio + max-height. */
+    aspect-ratio: 1 / 1;
+    max-height: calc(100vh - 160px);
+    margin: 0 auto;
+    overflow: hidden;
+    background: #000;
+  }
+  #video {
+    position: absolute;
+    left: 0; top: 0;
+    /* Width/height set in JS to natural video pixel size; transform applied. */
+    transform-origin: 0 0;
+    will-change: transform;
+    background: #000;
+  }
+  #cassette-img {
+    position: absolute;
+    left: 0; top: 0;
+    width: 720px; height: 720px;
+    transform-origin: 0 0;
+    will-change: transform;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 250ms;
+    mix-blend-mode: multiply;
+  }
+  #cassette-img.show { opacity: 0.95; }
   #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-  .hud { position: absolute; left: 0; right: 0; pointer-events: none; font-variant-numeric: tabular-nums; }
-  .hud-top { top: 0; padding: max(env(safe-area-inset-top, 0px), 8px) 12px 10px; display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; background: linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0)); }
-  .hud-bottom { bottom: 0; padding: 12px 12px max(env(safe-area-inset-bottom, 0px), 14px); background: linear-gradient(0deg, rgba(0,0,0,0.6), rgba(0,0,0,0)); }
-  .pill { background: var(--panel); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 6px 10px; font-size: 12px; line-height: 1.2; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
-  .pill.warn { border-color: var(--amber); color: var(--amber); }
-  .pill.bad { border-color: var(--red); color: var(--red); }
-  .pill.good { border-color: var(--green); color: var(--green); }
-  .pill .label { color: var(--muted); display: block; font-size: 10px; letter-spacing: 0.7px; text-transform: uppercase; }
-  .pill .val { font-weight: 700; font-size: 14px; }
-  .interlock-wrap { display: flex; justify-content: center; }
-  .interlock { background: rgba(255,71,87,0.18); border: 1px solid var(--red); color: var(--red); border-radius: 10px; padding: 6px 12px; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-align: center; max-width: 90%; }
+
+  /* ---------- HUD inside viewfinder ---------- */
+  .hud { position: absolute; pointer-events: none; font-variant-numeric: tabular-nums; }
+  .pill {
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-size: 12px; line-height: 1.2;
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  }
+  .pill.good { background: var(--green-pill); border-color: var(--green-pill); color: #042312; }
+  .pill.bad  { background: var(--red); border-color: var(--red); color: #fff; }
+  .pill .label { color: var(--muted); display: block; font-size: 9px; letter-spacing: 0.7px; text-transform: uppercase; }
+  .pill.good .label, .pill.bad .label { color: rgba(0,0,0,0.5); }
+  .pill .val { font-weight: 700; font-size: 13px; }
+
+  #pill-ssd { position: absolute; left: 8px; top: 8px; }
+  #pill-battery { position: absolute; left: 8px; top: 36px; padding: 4px 8px; font-size: 11px; }
+
+  /* ---------- SID vertical gauge (right edge of viewfinder) ---------- */
+  #sid-gauge {
+    position: absolute;
+    right: 8px; top: 8px;
+    width: 48px;
+    height: calc(100% - 16px);
+    pointer-events: none;
+  }
+  #sid-gauge .sid-label { position: absolute; right: 0; top: 0; font-size: 11px; color: #fff; background: var(--panel); padding: 4px 6px; border-radius: 4px; letter-spacing: 0.5px; }
+  #sid-gauge .bar-track {
+    position: absolute;
+    right: 14px;
+    top: 36px;
+    bottom: 12px;
+    width: 12px;
+    background: rgba(0,0,0,0.4);
+    border-radius: 6px;
+  }
+  #sid-gauge .bar-active {
+    position: absolute;
+    right: 14px;
+    /* In-range band 30-80 cm. Range covers center 80% of bar. */
+    top: 56px;
+    bottom: 32px;
+    width: 12px;
+    background: rgba(0,0,0,0.85);
+    border-radius: 6px;
+  }
+  #sid-gauge .marker {
+    position: absolute;
+    right: 6px;
+    width: 28px;
+    height: 4px;
+    background: var(--green-pill);
+    border: 1px solid #fff;
+    border-radius: 2px;
+    transform: translateY(-2px);
+    transition: top 80ms ease-out, background 200ms;
+    box-shadow: 0 0 4px rgba(0,0,0,0.6);
+  }
+  #sid-gauge .marker.bad { background: var(--red); }
+  #sid-gauge .sid-readout {
+    position: absolute;
+    right: 0;
+    width: 36px;
+    text-align: center;
+    font-size: 13px; font-weight: 800;
+    background: var(--green-pill);
+    color: #042312;
+    border-radius: 4px;
+    padding: 2px 0;
+    transition: top 80ms ease-out;
+  }
+  #sid-gauge .sid-readout.bad { background: var(--red); color: #fff; }
+
+  .interlock {
+    position: absolute;
+    left: 50%; transform: translateX(-50%);
+    top: 8px;
+    background: rgba(255,71,87,0.95);
+    color: #fff;
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
+    text-align: center;
+    max-width: 70%;
+    pointer-events: none;
+  }
   .interlock.hidden { display: none; }
-  .controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; align-items: end; }
-  .ctrl { background: var(--panel); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 8px; text-align: center; }
-  .ctrl .label { font-size: 10px; color: var(--muted); letter-spacing: 0.7px; text-transform: uppercase; }
-  .ctrl .val { font-size: 18px; font-weight: 800; }
+
+  .badge-detect {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 12px; padding: 14px 18px;
+    text-align: center; font-size: 13px; color: var(--text);
+    max-width: 80%;
+    pointer-events: none;
+  }
+  .badge-detect.hidden { display: none; }
+  .badge-detect .big { font-size: 32px; margin-bottom: 6px; }
+
+  /* ---------- Bottom controls (outside viewfinder) ---------- */
+  #bottom-bar {
+    flex: 1;
+    background: #000;
+    padding: 8px 12px max(env(safe-area-inset-bottom, 0px), 12px);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .bottom-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+  }
+  .ctrl {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 10px;
+    padding: 6px;
+    text-align: center;
+  }
+  .ctrl .label { font-size: 9px; color: var(--muted); letter-spacing: 0.7px; text-transform: uppercase; }
+  .ctrl .val { font-size: 16px; font-weight: 800; }
   .ctrl button { pointer-events: auto; background: rgba(255,255,255,0.08); color: var(--text); border: 0; border-radius: 6px; width: 28px; height: 28px; font-size: 14px; margin: 0 4px; }
-  .ctrl button:active { transform: scale(0.95); }
-  .row { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 4px; }
-  .menu-btn { pointer-events: auto; background: var(--panel); color: var(--text); border: 1px solid rgba(255,255,255,0.18); border-radius: 50%; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; }
-  .menu-btn.toggle.on { background: var(--green); color: #04130a; border-color: var(--green); }
-  .top-right { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
-  .top-left  { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
-  .trigger-zone { position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; }
-  .trigger { pointer-events: auto; width: 78px; height: 78px; border-radius: 50%; background: rgba(255,71,87,0.22); border: 3px solid var(--red); color: #fff; font-size: 11px; letter-spacing: 0.7px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  .row { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 2px; }
+
+  .trigger-row { display: flex; justify-content: center; }
+  .trigger {
+    pointer-events: auto;
+    width: 70px; height: 70px; border-radius: 50%;
+    background: rgba(255,71,87,0.22); border: 3px solid var(--red); color: #fff;
+    font-size: 11px; letter-spacing: 0.7px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+  }
   .trigger.armed { background: rgba(41,211,106,0.25); border-color: var(--green); }
   .trigger:active { transform: scale(0.96); }
-  .badge-detect { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; padding: 14px 18px; text-align: center; font-size: 13px; color: var(--text); max-width: 78%; }
-  .badge-detect.hidden { display: none; }
-  .badge-detect .big { font-size: 28px; margin-bottom: 6px; }
+
+  /* ---------- Capture flash (over viewfinder only) ---------- */
   #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 80ms ease-out; }
   #flash.on { opacity: 1; }
-  #diag { position: absolute; top: 88px; left: 12px; font-size: 10px; color: var(--muted); background: rgba(0,0,0,0.45); padding: 4px 8px; border-radius: 6px; font-variant-numeric: tabular-nums; pointer-events: none; }
-  #diag.hidden { display: none; }
+
+  /* Mode highlight */
+  .ctrl.mode-active { background: var(--orange); }
+  .ctrl.mode-active .label, .ctrl.mode-active .val { color: #1a0a00; }
 </style>
 </head>
 <body>
@@ -86,50 +224,54 @@
   <h1>MC2 Viewfinder Trainer</h1>
   <p class="sub">Practice aiming the MC2 emitter using your phone camera and a printed QR target that simulates the cassette detector.</p>
   <ol>
-    <li>Print <code>qr-target.pdf</code> at 100% scale (NOT "fit to page"). Verify the 9&nbsp;cm ruler with a real ruler.</li>
-    <li>Lay the page flat on a table &mdash; that's your cassette.</li>
+    <li>Print <code>qr-target.pdf</code> at 100% scale (NOT "fit to page"). Verify the 9&nbsp;cm ruler is exactly 9&nbsp;cm with a real ruler.</li>
+    <li>Lay the page flat &mdash; that's your cassette.</li>
     <li>Tap <b>Start</b>, allow camera access, and aim your phone like the MC2 emitter.</li>
-    <li>Watch the field indicator, center mark, SID and SSD gauges respond like the real Viewfinder.</li>
   </ol>
   <div class="calib">
-    <label>Measured QR size (mm) &mdash; for accurate SID</label>
+    <label>Measured QR size (mm)</label>
     <input id="calib-input" type="number" inputmode="decimal" min="20" max="200" step="0.1" value="90">
     <label style="margin-top:10px">Patient thickness (cm)</label>
     <input id="thick-input" type="number" inputmode="decimal" min="0" max="40" step="0.5" value="5">
   </div>
   <button class="btn" id="start-btn">Start camera</button>
-  <div class="small">Camera access requires HTTPS or localhost. For best results, hold phone 30&ndash;80&nbsp;cm from the target.</div>
+  <div class="small">Camera access requires HTTPS. Hold phone 30&ndash;80&nbsp;cm from the target.</div>
 </div>
 
 <div id="app">
-  <video id="video" autoplay muted playsinline webkit-playsinline></video>
-  <img id="cassette" src="assets/cassette.webp" alt="" />
-  <canvas id="overlay"></canvas>
-  <div id="flash"></div>
-  <div class="hud hud-top">
-    <div class="top-left">
-      <div class="pill" id="pill-ssd"><span class="label">SSD</span><span class="val"><span id="ssd-val">--</span> cm</span></div>
-      <div class="pill" id="pill-tilt"><span class="label">Tilt</span><span class="val"><span id="tilt-val">--</span>&deg;</span></div>
+  <div id="viewfinder">
+    <video id="video" autoplay muted playsinline webkit-playsinline></video>
+    <img id="cassette-img" src="assets/cassette-full.webp" alt="" />
+    <canvas id="overlay"></canvas>
+    <div id="flash"></div>
+
+    <div class="pill" id="pill-ssd"><span class="label">SSD</span><span class="val"><span id="ssd-val">--</span></span></div>
+    <div class="pill" id="pill-battery"><span>&#x1F50B;</span> 100%</div>
+
+    <div id="sid-gauge">
+      <div class="sid-label">SID</div>
+      <div class="bar-track"></div>
+      <div class="bar-active"></div>
+      <div class="marker" id="sid-marker"></div>
+      <div class="sid-readout" id="sid-readout">--</div>
     </div>
-    <div class="interlock-wrap"><div class="interlock hidden" id="interlock">&mdash; ALIGN X-RAY BEAM &mdash;</div></div>
-    <div class="top-right">
-      <div class="pill" id="pill-sid"><span class="label">SID</span><span class="val"><span id="sid-val">--</span> cm</span></div>
+
+    <div class="interlock hidden" id="interlock">&mdash; ALIGN X-RAY BEAM &mdash;</div>
+    <div class="badge-detect" id="badge-detect">
+      <div class="big">&#x2316;</div>
+      <div>Aim camera at the printed QR target</div>
+      <div style="color:var(--muted);font-size:11px;margin-top:4px">No cassette detected</div>
     </div>
   </div>
-  <div class="trigger-zone"><button class="trigger" id="trigger" aria-label="Trigger">EXPOSE</button></div>
-  <div class="hud hud-bottom">
-    <div class="controls">
+
+  <div id="bottom-bar">
+    <div class="bottom-row">
       <div class="ctrl"><div class="label">kV</div><div class="val"><span id="kv-val">60</span></div><div class="row"><button data-act="kv-">&minus;</button><button data-act="kv+">+</button></div></div>
-      <div class="ctrl"><div class="label">Mode</div><div class="val" id="mode-val">DDR</div><div class="row"><button data-act="mode">&#x27F3;</button></div></div>
+      <div class="ctrl mode-active" id="ctrl-mode"><div class="label">Mode</div><div class="val" id="mode-val">DDR</div><div class="row"><button data-act="mode">&#x27F3;</button></div></div>
       <div class="ctrl"><div class="label">mAs</div><div class="val"><span id="mas-val">0.16</span></div><div class="row"><button data-act="mas-">&minus;</button><button data-act="mas+">+</button></div></div>
     </div>
+    <div class="trigger-row"><button class="trigger" id="trigger" aria-label="Trigger">EXPOSE</button></div>
   </div>
-  <div class="badge-detect" id="badge-detect">
-    <div class="big">&#x2316;</div>
-    <div>Aim camera at the printed QR target</div>
-    <div style="color:var(--muted);font-size:11px;margin-top:4px">No cassette detected</div>
-  </div>
-  <div id="diag" class="hidden"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>

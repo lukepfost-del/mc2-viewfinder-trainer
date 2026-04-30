@@ -1,72 +1,67 @@
 'use strict';
 
 // =============================================================================
-// MC2 Viewfinder Trainer v3
-// - Auto-only collimator with fit-to-bounds field sizing (per IFU + user notes)
-// - Cassette image overlay via CSS matrix3d riding on the QR plane
-// - Real SVG-derived external cross + collimation pillow geometry
+// MC2 Viewfinder Trainer v4
+// - Square viewfinder profile (matches device LCD)
+// - Detector-centric rectification: cassette plane fixed-size on screen,
+//   tilt/distance corrected, phone roll preserved (option B)
+// - Full uncropped cassette image rides on the rectified plane
+// - Vertical SID gauge with floating marker
 // =============================================================================
 
-// ===== UI elements =====
+// ---- DOM ----
 const startScreen = document.getElementById('start-screen');
 const startBtn    = document.getElementById('start-btn');
 const calibInput  = document.getElementById('calib-input');
 const thickInput  = document.getElementById('thick-input');
+const viewfinder  = document.getElementById('viewfinder');
 const video       = document.getElementById('video');
-const cassetteImg = document.getElementById('cassette');
+const cassetteImg = document.getElementById('cassette-img');
 const overlay     = document.getElementById('overlay');
 const flash       = document.getElementById('flash');
 const ctx         = overlay.getContext('2d');
 const ssdVal      = document.getElementById('ssd-val');
-const sidVal      = document.getElementById('sid-val');
-const tiltVal     = document.getElementById('tilt-val');
 const pillSSD     = document.getElementById('pill-ssd');
-const pillSID     = document.getElementById('pill-sid');
-const pillTilt    = document.getElementById('pill-tilt');
+const sidReadout  = document.getElementById('sid-readout');
+const sidMarker   = document.getElementById('sid-marker');
 const interlock   = document.getElementById('interlock');
 const badgeDetect = document.getElementById('badge-detect');
 const kvValEl     = document.getElementById('kv-val');
 const masValEl    = document.getElementById('mas-val');
 const modeValEl   = document.getElementById('mode-val');
 const triggerBtn  = document.getElementById('trigger');
-const diag        = document.getElementById('diag');
 
-// ===== Settings =====
+// ---- Settings ----
 const SETTINGS = {
   qrPhysicalCm: 9.0,
-  // Real MC2 active area is 21.35 x 21.35 cm.
   activeAreaCm: 21.35,
-  // The cropped cassette image's active-area square spans ~65% of the image.
-  // Project the whole image to (activeAreaCm / 0.65) cm so the inner active
-  // area lines up with the trainer's active-area math.
-  cassetteImgActiveFrac: 0.65,
-  // Min collimator field projects to 0.24 * SID cm at the cassette plane
-  // (from IFU table - the 0% row scales linearly with SID at 0.24 cm/cm).
+  // Active area takes ~62% of the full uncropped cassette image's height/width.
+  cassetteImgActiveFrac: 0.62,
+  // The active area is centered horizontally in the image but offset vertically
+  // (cassette has a handle on top). Vertical center as fraction of image height.
+  cassetteImgActiveCy: 0.585,
   minFieldCmPerSid: 0.24,
   sidMin: 30, sidMax: 80,
   ssdMin: 30,
   patientThicknessCm: 5,
   focalRel: 0.85,
-  perpThresholdDeg: 8,
-  perpFadeMaxDeg: 25,
-  oeMinCutoff: 1.2,
-  oeBeta: 0.04,
-  oeDerivCutoff: 1.0,
+  oeMinCutoff: 1.2, oeBeta: 0.04, oeDerivCutoff: 1.0,
   procMaxDim: 720,
-  cassetteImgPx: 600, // natural pixel size of cassette.webp
+  cassetteImgPx: 720,
+  // Margin inside the viewfinder square for the active-area projected size.
+  // Active area takes this fraction of the viewfinder side.  The cassette body
+  // around it spills toward the viewfinder edges (and may clip slightly).
+  activeAreaScreenFrac: 0.78,
 };
 
 const COLORS = {
-  green:       '#077B51',
-  greenPill:   '#3DB06B',
-  orange:      '#EE6C4D',
-  centerBlack: '#000000',
-  active:      'rgba(180, 220, 255, 0.10)',
-  outBoundsBg: 'rgba(255, 71, 87, 0.10)',
-  outline:     'rgba(255,255,255,0.30)',
+  collim:     '#077B51',
+  green:      '#3DB06B',
+  red:        '#ff4757',
+  black:      '#000000',
 };
 
-// ===== State =====
+// ---- State ----
 const state = {
   running: false,
   kv: 60, kvOpts: [40,50,60,70,80],
@@ -74,28 +69,20 @@ const state = {
   modeIdx: 1, modes: ['Single','DDR','Fluoro','Photo'],
   qr: null, pose: null, lastDetectT: 0,
   frameW: 0, frameH: 0,
-  perpAlpha: 0,
-  capturing: false,
-  prevAllowed: false,
-  meanLuma: 0,
+  capturing: false, prevAllowed: false, meanLuma: 0,
 };
 
-// =============================================================================
-// One-Euro filter
-// =============================================================================
+// ---- One-Euro filter ----
 class OneEuro {
   constructor(minCutoff, beta, dCutoff) {
     this.minCutoff = minCutoff; this.beta = beta; this.dCutoff = dCutoff;
     this.x = null; this.dx = 0; this.tPrev = null;
   }
-  alpha(cutoff, dt){
-    const tau = 1 / (2 * Math.PI * cutoff);
-    return 1 / (1 + tau / dt);
-  }
+  alpha(cutoff, dt){ const tau = 1/(2*Math.PI*cutoff); return 1/(1 + tau/dt); }
   filter(x, t) {
     if (this.tPrev == null) { this.tPrev = t; this.x = x; return x; }
-    const dt = Math.max(1e-3, (t - this.tPrev) / 1000);
-    const dxRaw = (x - this.x) / dt;
+    const dt = Math.max(1e-3, (t - this.tPrev)/1000);
+    const dxRaw = (x - this.x)/dt;
     const aD = this.alpha(this.dCutoff, dt);
     this.dx = aD * dxRaw + (1 - aD) * this.dx;
     const cutoff = this.minCutoff + this.beta * Math.abs(this.dx);
@@ -116,21 +103,15 @@ function makeCornerFilters() {
   return arr;
 }
 let cornerFilters = makeCornerFilters();
-const sidFilter   = new OneEuro(0.8, 0.02, 1.0);
-const tiltFilter  = new OneEuro(0.8, 0.02, 1.0);
+const sidFilter  = new OneEuro(0.8, 0.02, 1.0);
+const tiltFilter = new OneEuro(0.8, 0.02, 1.0);
 
-// =============================================================================
-// Camera
-// =============================================================================
+// ---- Camera ----
 async function startCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
-      video: {
-        facingMode: { ideal: 'environment' },
-        width:  { ideal: 1920 },
-        height: { ideal: 1080 },
-      }
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
     });
     video.srcObject = stream;
     try { await video.play(); } catch(_) {}
@@ -139,6 +120,10 @@ async function startCamera() {
       const onMeta = () => { video.removeEventListener('loadedmetadata', onMeta); res(); };
       video.addEventListener('loadedmetadata', onMeta);
     });
+    // Pin video element to its native pixel dimensions so matrix3d math is direct.
+    video.style.width  = video.videoWidth + 'px';
+    video.style.height = video.videoHeight + 'px';
+
     const mm = parseFloat(calibInput.value);
     if (Number.isFinite(mm) && mm >= 10 && mm <= 200) SETTINGS.qrPhysicalCm = mm / 10;
     const th = parseFloat(thickInput.value);
@@ -148,27 +133,25 @@ async function startCamera() {
     resizeCanvas();
     requestAnimationFrame(loop);
   } catch (err) {
-    alert('Camera unavailable: ' + (err && err.message ? err.message : err) +
-          '\n\nThis demo requires HTTPS (or localhost) and a working rear camera.');
+    alert('Camera unavailable: ' + (err && err.message ? err.message : err));
     startScreen.classList.remove('hidden');
   }
 }
 
 function resizeCanvas() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  overlay.width  = Math.round(window.innerWidth  * dpr);
-  overlay.height = Math.round(window.innerHeight * dpr);
-  overlay.style.width  = window.innerWidth  + 'px';
-  overlay.style.height = window.innerHeight + 'px';
+  const W = viewfinder.clientWidth, H = viewfinder.clientHeight;
+  overlay.width  = Math.round(W * dpr);
+  overlay.height = Math.round(H * dpr);
+  overlay.style.width  = W + 'px';
+  overlay.style.height = H + 'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
 }
 window.addEventListener('resize', resizeCanvas);
 window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 200));
 if (window.visualViewport) window.visualViewport.addEventListener('resize', resizeCanvas);
 
-// =============================================================================
-// QR detection with One-Euro corner smoothing
-// =============================================================================
+// ---- QR detection (One-Euro smoothed corners) ----
 const work = document.createElement('canvas');
 const wctx = work.getContext('2d', { willReadFrequently: true });
 
@@ -177,14 +160,12 @@ function detectQR() {
   if (!vw || !vh) return null;
   const targetMax = SETTINGS.procMaxDim;
   const scale = targetMax / Math.max(vw, vh);
-  const w = Math.round(vw * scale);
-  const h = Math.round(vh * scale);
+  const w = Math.round(vw * scale), h = Math.round(vh * scale);
   if (work.width !== w || work.height !== h) { work.width = w; work.height = h; }
   state.frameW = w; state.frameH = h;
   wctx.drawImage(video, 0, 0, w, h);
   let imgData;
-  try { imgData = wctx.getImageData(0, 0, w, h); }
-  catch(e){ return null; }
+  try { imgData = wctx.getImageData(0, 0, w, h); } catch(e){ return null; }
 
   let luma = 0, samples = 0;
   for (let i=0; i<imgData.data.length; i+=64*4) {
@@ -207,19 +188,14 @@ function detectQR() {
     x: cornerFilters[i].x.filter(p.x, t),
     y: cornerFilters[i].y.filter(p.y, t),
   }));
-  return { corners: smoothed, raw: rawCorners, data: code.data, t };
+  return { corners: smoothed, raw: rawCorners, data: code.data, t, scaleVid: 1/scale };
 }
 
-// =============================================================================
-// Geometry: 8x8 solver, homography, inverse, tilt-from-H, quad-to-quad-3D
-// =============================================================================
+// ---- Linear algebra: 8x8 solver, 3x3 homography, inverse, 3x3 multiply ----
 function solve8(A, b) {
   const n = 8;
   const M = new Float64Array(n*(n+1));
-  for (let i=0;i<n;i++){
-    for (let j=0;j<n;j++) M[i*(n+1)+j] = A[i*n+j];
-    M[i*(n+1)+n] = b[i];
-  }
+  for (let i=0;i<n;i++){ for (let j=0;j<n;j++) M[i*(n+1)+j] = A[i*n+j]; M[i*(n+1)+n] = b[i]; }
   for (let i=0;i<n;i++){
     let p = i, pv = Math.abs(M[i*(n+1)+i]);
     for (let r=i+1;r<n;r++){ const v = Math.abs(M[r*(n+1)+i]); if (v>pv){pv=v;p=r;} }
@@ -227,8 +203,7 @@ function solve8(A, b) {
     if (p !== i) { for (let j=0;j<=n;j++){ const t=M[i*(n+1)+j]; M[i*(n+1)+j]=M[p*(n+1)+j]; M[p*(n+1)+j]=t; } }
     const inv = 1/M[i*(n+1)+i];
     for (let j=i;j<=n;j++) M[i*(n+1)+j] *= inv;
-    for (let r=0;r<n;r++){ if (r===i) continue;
-      const f = M[r*(n+1)+i]; if (!f) continue;
+    for (let r=0;r<n;r++){ if (r===i) continue; const f = M[r*(n+1)+i]; if (!f) continue;
       for (let j=i;j<=n;j++) M[r*(n+1)+j] -= f*M[i*(n+1)+j];
     }
   }
@@ -251,263 +226,192 @@ function homography4(src, dst) {
   if (!h) return null;
   return [h[0],h[1],h[2], h[3],h[4],h[5], h[6],h[7],1];
 }
-function applyH(H, x, y) {
-  const w = H[6]*x + H[7]*y + H[8];
-  return { x:(H[0]*x+H[1]*y+H[2])/w, y:(H[3]*x+H[4]*y+H[5])/w };
-}
+function applyH(H, x, y) { const w = H[6]*x + H[7]*y + H[8]; return { x:(H[0]*x+H[1]*y+H[2])/w, y:(H[3]*x+H[4]*y+H[5])/w }; }
 function invert3(H) {
   const a=H[0],b=H[1],c=H[2], d=H[3],e=H[4],f=H[5], g=H[6],h=H[7],i=H[8];
-  const A = (e*i - f*h), B = -(d*i - f*g), C = (d*h - e*g);
-  const det = a*A + b*B + c*C;
-  if (Math.abs(det) < 1e-12) return null;
-  const D = -(b*i - c*h), E = (a*i - c*g), F = -(a*h - b*g);
-  const G = (b*f - c*e), I = -(a*f - c*d), J = (a*e - b*d);
+  const A=(e*i-f*h),B=-(d*i-f*g),C=(d*h-e*g);
+  const det = a*A + b*B + c*C; if (Math.abs(det) < 1e-12) return null;
+  const D=-(b*i-c*h),E=(a*i-c*g),F=-(a*h-b*g),G=(b*f-c*e),I=-(a*f-c*d),J=(a*e-b*d);
   const inv = [A,D,G, B,E,I, C,F,J];
   for (let k=0;k<9;k++) inv[k] /= det;
   return inv;
 }
+function mul3x3(P, Q) {
+  return [
+    P[0]*Q[0]+P[1]*Q[3]+P[2]*Q[6], P[0]*Q[1]+P[1]*Q[4]+P[2]*Q[7], P[0]*Q[2]+P[1]*Q[5]+P[2]*Q[8],
+    P[3]*Q[0]+P[4]*Q[3]+P[5]*Q[6], P[3]*Q[1]+P[4]*Q[4]+P[5]*Q[7], P[3]*Q[2]+P[4]*Q[5]+P[5]*Q[8],
+    P[6]*Q[0]+P[7]*Q[3]+P[8]*Q[6], P[6]*Q[1]+P[7]*Q[4]+P[8]*Q[7], P[6]*Q[2]+P[7]*Q[5]+P[8]*Q[8],
+  ];
+}
 function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
 function clamp01(v){ return Math.max(0, Math.min(1, v)); }
-function lerp(a,b,t){ return a + (b-a)*t; }
 
+// Tilt from homography decomposition (pinhole intrinsics)
 function tiltFromH(H, fx, fy, cx, cy) {
   const Hn = [
-    (H[0] - cx*H[6]) / fx, (H[1] - cx*H[7]) / fx, (H[2] - cx*H[8]) / fx,
-    (H[3] - cy*H[6]) / fy, (H[4] - cy*H[7]) / fy, (H[5] - cy*H[8]) / fy,
+    (H[0]-cx*H[6])/fx, (H[1]-cx*H[7])/fx, (H[2]-cx*H[8])/fx,
+    (H[3]-cy*H[6])/fy, (H[4]-cy*H[7])/fy, (H[5]-cy*H[8])/fy,
     H[6], H[7], H[8],
   ];
   const r1 = [Hn[0], Hn[3], Hn[6]], r2 = [Hn[1], Hn[4], Hn[7]];
   const len1 = Math.hypot(r1[0],r1[1],r1[2]) || 1;
   const len2 = Math.hypot(r2[0],r2[1],r2[2]) || 1;
-  const lam = 2 / (len1 + len2);
+  const lam = 2/(len1+len2);
   const r1n = r1.map(v=>v*lam), r2n = r2.map(v=>v*lam);
   const n = [
-    r1n[1]*r2n[2] - r1n[2]*r2n[1],
-    r1n[2]*r2n[0] - r1n[0]*r2n[2],
-    r1n[0]*r2n[1] - r1n[1]*r2n[0],
+    r1n[1]*r2n[2]-r1n[2]*r2n[1],
+    r1n[2]*r2n[0]-r1n[0]*r2n[2],
+    r1n[0]*r2n[1]-r1n[1]*r2n[0],
   ];
   const nlen = Math.hypot(n[0],n[1],n[2]) || 1;
-  const nz = Math.abs(n[2] / nlen);
+  const nz = Math.abs(n[2]/nlen);
   return Math.acos(Math.max(0, Math.min(1, nz))) * 180 / Math.PI;
 }
 
-// Quad-to-quad: returns the 8 unknowns of a 3x3 homography (h00..h21, with h22=1)
-// that maps the 4 source points to the 4 destination points.  Used to drive
-// CSS `matrix3d` for the cassette image overlay.
-function quadHomography(from, to) {
-  return homography4(from, to); // already returns the 9-element row-major H
-}
-// Convert a 3x3 homography mapping the source rect (0,0..W,H) to a CSS matrix3d
-// transform string. Element with width=W, height=H, transform-origin: 0 0 will
-// land its 4 corners on the 4 destination points.
-function matrix3dFromH(H) {
-  // CSS matrix3d takes 16 values column-major: m11,m12,m13,m14, m21,...
-  // Mapping a 3x3 affine homography H (row-major a..i) to 4x4:
-  //   m11=a, m12=d, m13=0, m14=g
-  //   m21=b, m22=e, m23=0, m24=h
-  //   m31=0, m32=0, m33=1, m34=0
-  //   m41=c, m42=f, m43=0, m44=i
-  const a=H[0],b=H[1],c=H[2], d=H[3],e=H[4],f=H[5], g=H[6],h=H[7],i=H[8];
-  return 'matrix3d(' +
-    [ a,d,0,g,
-      b,e,0,h,
-      0,0,1,0,
-      c,f,0,i ].join(',') + ')';
-}
-
-// =============================================================================
-// Pose: SID, tilt, aim point, in-bounds, collimator field with fit-to-bounds
-// =============================================================================
+// ============================================================================
+// Pose: SID, tilt, aim point, in-bounds, fit-to-bounds collimator field
+// ============================================================================
 function buildPose(qr) {
   const q = SETTINGS.qrPhysicalCm / 2;
-  const qrLocal = [
-    { x:-q, y:-q }, { x: q, y:-q }, { x: q, y: q }, { x:-q, y: q },
-  ];
-  const qrImg = qr.corners;
+  const qrLocal = [{ x:-q, y:-q }, { x: q, y:-q }, { x: q, y: q }, { x:-q, y: q }];
+  const qrImg = qr.corners; // working-frame px
 
-  const H_local_to_img = homography4(qrLocal, qrImg);
-  if (!H_local_to_img) return null;
-  const H_img_to_local = invert3(H_local_to_img);
-  if (!H_img_to_local) return null;
+  const H_l_to_img = homography4(qrLocal, qrImg);
+  if (!H_l_to_img) return null;
+  const H_img_to_l = invert3(H_l_to_img);
+  if (!H_img_to_l) return null;
 
-  const sides = [
-    dist(qrImg[0], qrImg[1]), dist(qrImg[1], qrImg[2]),
-    dist(qrImg[2], qrImg[3]), dist(qrImg[3], qrImg[0]),
+  // Scale homography to native video px (matrix3d targets video pixel space).
+  const s = qr.scaleVid; // working->video px scale factor
+  const H_l_to_videoPx = [
+    H_l_to_img[0]*s, H_l_to_img[1]*s, H_l_to_img[2]*s,
+    H_l_to_img[3]*s, H_l_to_img[4]*s, H_l_to_img[5]*s,
+    H_l_to_img[6],   H_l_to_img[7],   H_l_to_img[8],
   ];
-  const avgSidePx = (sides[0]+sides[1]+sides[2]+sides[3]) / 4;
+  const H_videoPx_to_l = invert3(H_l_to_videoPx);
+
+  const sides = [dist(qrImg[0],qrImg[1]), dist(qrImg[1],qrImg[2]), dist(qrImg[2],qrImg[3]), dist(qrImg[3],qrImg[0])];
+  const avgSidePx = (sides[0]+sides[1]+sides[2]+sides[3])/4;
   const focalPx = SETTINGS.focalRel * Math.max(state.frameW, state.frameH);
   let sidCm = focalPx * SETTINGS.qrPhysicalCm / Math.max(avgSidePx, 1);
-  let tiltDeg = tiltFromH(H_local_to_img, focalPx, focalPx,
-    state.frameW / 2, state.frameH / 2);
+  let tiltDeg = tiltFromH(H_l_to_img, focalPx, focalPx, state.frameW/2, state.frameH/2);
 
   const t = performance.now();
-  sidCm  = sidFilter.filter(sidCm, t);
+  sidCm = sidFilter.filter(sidCm, t);
   tiltDeg = tiltFilter.filter(tiltDeg, t);
 
-  const aimImg = { x: state.frameW / 2, y: state.frameH / 2 };
-  const aimLocal = applyH(H_img_to_local, aimImg.x, aimImg.y);
+  // Aim point = where image center maps onto cassette plane
+  const aimImg = { x: state.frameW/2, y: state.frameH/2 };
+  const aimLocal = applyH(H_img_to_l, aimImg.x, aimImg.y);
 
-  // Active area in cassette local cm (centered on QR center)
+  // Auto-collimator with fit-to-bounds (per IFU + user spec)
   const half = SETTINGS.activeAreaCm / 2;
-  const activeLocal = [
-    { x:-half, y:-half }, { x: half, y:-half }, { x: half, y: half }, { x:-half, y: half },
-  ];
-  const activeImg = activeLocal.map(p => applyH(H_local_to_img, p.x, p.y));
-
-  // ---------- Auto-collimator with fit-to-bounds (per IFU + user notes) ----------
-  // The auto collimator opens as wide as it can while keeping the projected
-  // X-ray rectangle inside the active area. The smallest possible field at
-  // a given SID is approximately `0.24 * SID` cm (from IFU table, 0% row).
-  // We're out of bounds only when even the minimum field can't fit, which
-  // happens when the aim point is so close to or past the active-area edge
-  // that |aim| > half - minFieldHalf in either axis.
-  const minFieldCm  = SETTINGS.minFieldCmPerSid * sidCm;
-  const minHalf     = minFieldCm / 2;
+  const minHalf = SETTINGS.minFieldCmPerSid * sidCm / 2;
   const maxFitHalfX = half - Math.abs(aimLocal.x);
   const maxFitHalfY = half - Math.abs(aimLocal.y);
-  const maxFitHalf  = Math.min(maxFitHalfX, maxFitHalfY);
-  const willFit     = maxFitHalf >= minHalf;
-  // Field grows toward full active area as you center; clamps to fit-bound;
-  // floors at minHalf so the visible rectangle never disappears while in bounds.
+  const maxFitHalf = Math.min(maxFitHalfX, maxFitHalfY);
+  const willFit = maxFitHalf >= minHalf;
   const fieldHalf = willFit ? Math.max(minHalf, Math.min(half, maxFitHalf)) : 0;
-  const fieldCm = fieldHalf * 2;
   const inBounds = willFit;
 
-  // Cassette image projection: project the whole image such that its inner
-  // active-area square (cassetteImgActiveFrac of image) maps to activeAreaCm.
-  const imgSpanCm = SETTINGS.activeAreaCm / SETTINGS.cassetteImgActiveFrac;
-  const imgHalf   = imgSpanCm / 2;
-  const cassetteLocal = [
-    { x:-imgHalf, y:-imgHalf }, { x: imgHalf, y:-imgHalf },
-    { x: imgHalf, y: imgHalf }, { x:-imgHalf, y: imgHalf },
-  ];
+  // Roll: angle of QR's top edge in image space (preserved on screen, option B)
+  const dx = qrImg[1].x - qrImg[0].x;
+  const dy = qrImg[1].y - qrImg[0].y;
+  const roll = Math.atan2(dy, dx);
 
   return {
-    H_local_to_img, H_img_to_local,
-    sidCm, tiltDeg,
-    aimLocal, aimImg,
-    activeLocal, activeImg,
-    cassetteLocal,
-    fieldCm, fieldHalf, half,
-    minFieldCm, maxFitHalf,
-    inBounds, willFit,
-    qrImg,
+    H_l_to_img, H_img_to_l, H_l_to_videoPx, H_videoPx_to_l,
+    sidCm, tiltDeg, roll,
+    aimLocal,
+    fieldHalf, half, inBounds,
   };
 }
 
-// =============================================================================
-// Frame -> screen mapping (object-fit: cover)
-// =============================================================================
-function frameToScreenScale() {
-  const vw = video.videoWidth, vh = video.videoHeight;
-  const sw = window.innerWidth, sh = window.innerHeight;
-  if (!vw || !vh || !state.frameW || !state.frameH) return null;
-  const scaleVid = state.frameW / vw;
-  const cover = Math.max(sw / vw, sh / vh);
-  const dispW = vw * cover, dispH = vh * cover;
-  const offX = (sw - dispW) / 2, offY = (sh - dispH) / 2;
-  return (p) => ({
-    x: offX + (p.x / scaleVid) * cover,
-    y: offY + (p.y / scaleVid) * cover,
-  });
+// ============================================================================
+// Rectification: build local->screen similarity (rotation + scale + translate)
+// to be the same transform for both video (via matrix3d) and overlay drawing.
+// ============================================================================
+function buildLocalToScreen(p) {
+  const W = viewfinder.clientWidth, H = viewfinder.clientHeight;
+  // Active area side projected on screen
+  const aaSide = SETTINGS.activeAreaScreenFrac * Math.min(W, H);
+  // cm -> px: aaSide / activeAreaCm
+  const scale = aaSide / SETTINGS.activeAreaCm;
+  const cx = W / 2, cy = H / 2;
+  const cosR = Math.cos(p.roll), sinR = Math.sin(p.roll);
+  // 3x3 H_local_to_screen (similarity)
+  const H_l_to_s = [
+    scale * cosR, -scale * sinR, cx,
+    scale * sinR,  scale * cosR, cy,
+    0,             0,            1,
+  ];
+  return { H_l_to_s, scale, cx, cy, W, H, aaSide };
 }
 
-// =============================================================================
-// SVG-derived primitives (geometry sourced from External cross.svg and
-// Collimation Line.svg in the Viewfinder asset set)
-// =============================================================================
-
-// External cross: 4 pill-shaped arms (4 wide, ~38 long) with a notch around
-// the center matching the SVG (gap of 18 from center).  Drawn in screen pixels.
-function drawExternalCross(cx, cy, scale, color, alpha) {
-  if (alpha <= 0.02) return;
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = color;
-  // Each arm = a 4x36 pill (rounded rect) starting at the gap distance from cx,cy
-  function pill(x0, y0, w, h) {
-    const r = Math.min(w, h) / 2;
-    ctx.beginPath();
-    ctx.moveTo(x0 + r, y0);
-    ctx.lineTo(x0 + w - r, y0);
-    ctx.arc(x0 + w - r, y0 + r, r, -Math.PI/2, Math.PI/2);
-    ctx.lineTo(x0 + r, y0 + h);
-    ctx.arc(x0 + r, y0 + r, r, Math.PI/2, -Math.PI/2);
-    ctx.closePath();
-    ctx.fill();
-  }
-  const gap   = 18 * scale;
-  const armW  = 4  * scale;
-  const armL  = 36 * scale;
-  // Up / Down (vertical pills) and Left / Right (horizontal pills)
-  pill(cx - armW/2, cy - gap - armL, armW, armL);          // up
-  pill(cx - armW/2, cy + gap,        armW, armL);          // down
-  pill(cx - gap - armL, cy - armW/2, armL, armW);          // left
-  pill(cx + gap, cy - armW/2,        armL, armW);          // right
-  ctx.restore();
+// matrix3d builder for a 3x3 row-major homography that maps natural element px
+// (0..elementWidth, 0..elementHeight) -> screen px when applied with
+// transform-origin: 0 0.
+function matrix3dFromH(H) {
+  const a=H[0],b=H[1],c=H[2], d=H[3],e=H[4],f=H[5], g=H[6],h=H[7],i=H[8];
+  return 'matrix3d(' + [a,d,0,g, b,e,0,h, 0,0,1,0, c,f,0,i].join(',') + ')';
 }
 
-// Center plus + ring (small "snap" mark at the beam landing point).
-function drawCenterPlus(cx, cy, color) {
-  ctx.save();
-  ctx.lineCap = 'round';
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - 8); ctx.lineTo(cx, cy + 8);
-  ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy);
-  ctx.stroke();
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(cx, cy, 13, 0, Math.PI*2);
-  ctx.stroke();
-  ctx.restore();
+// Apply CSS transform to the cassette image (similarity, 2D only).
+function applyCassetteTransform(p, l2s) {
+  // Cassette image's natural pixels (0..720, 0..720) cover cassetteImgSpanCm.
+  // The active area is cassetteImgActiveFrac of the image, centered horizontally
+  // but offset vertically by cassetteImgActiveCy.
+  const Wpx = SETTINGS.cassetteImgPx;
+  const imgSpanCm = SETTINGS.activeAreaCm / SETTINGS.cassetteImgActiveFrac;
+  // Map image px -> cassette local cm
+  // active-area center in image px: (Wpx/2, Wpx * cassetteImgActiveCy)
+  const aaCxImg = Wpx / 2;
+  const aaCyImg = Wpx * SETTINGS.cassetteImgActiveCy;
+  // px -> cm scale: imgSpanCm / Wpx
+  const pxToCm = imgSpanCm / Wpx;
+  // T_imgPx_to_local: shift by -(aaCxImg, aaCyImg), then scale by pxToCm
+  // T_imgPx_to_local = [pxToCm, 0, -aaCxImg*pxToCm; 0, pxToCm, -aaCyImg*pxToCm; 0,0,1]
+  const T_i_to_l = [
+    pxToCm, 0,      -aaCxImg * pxToCm,
+    0,      pxToCm, -aaCyImg * pxToCm,
+    0,      0,      1,
+  ];
+  // Compose: T_i_to_s = H_l_to_s * T_i_to_l
+  const T_i_to_s = mul3x3(l2s.H_l_to_s, T_i_to_l);
+  cassetteImg.style.transform = matrix3dFromH(T_i_to_s);
+  cassetteImg.classList.add('show');
 }
 
-// Collimation pillow: 4 quadratic-bezier edges bowing slightly outward, in the
-// MC2 collimation green (#077B51).  `quad` is the 4 screen-space corners of
-// the field rectangle; `bowFraction` is how far the bezier control point sits
-// out from each edge midpoint, as a fraction of edge length.
-function drawCollimationPillow(quad, bowFraction, lineWidth, color) {
-  const c = centroid(quad);
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = lineWidth;
-  ctx.lineJoin = 'round';
+// Apply CSS transform to the video element (perspective rectification).
+function applyVideoTransform(p, l2s) {
+  // T_videoPx_to_screen = H_l_to_s * H_videoPx_to_l
+  const T = mul3x3(l2s.H_l_to_s, p.H_videoPx_to_l);
+  video.style.transform = matrix3dFromH(T);
+}
+
+function clearTransforms() {
+  cassetteImg.classList.remove('show');
+  video.style.transform = 'none';
+}
+
+// ============================================================================
+// Drawing primitives (in screen px - we map cassette local through l2s)
+// ============================================================================
+function pts2screen(localPts, l2s) {
+  return localPts.map(p => applyH(l2s.H_l_to_s, p.x, p.y));
+}
+function pathQuad(quad){
   ctx.beginPath();
-  for (let i = 0; i < 4; i++) {
-    const a = quad[i];
-    const b = quad[(i+1) % 4];
-    const mid = { x: (a.x+b.x)/2, y: (a.y+b.y)/2 };
-    let nx = mid.x - c.x, ny = mid.y - c.y;
-    const nlen = Math.hypot(nx, ny) || 1;
-    nx /= nlen; ny /= nlen;
-    const edgeLen = Math.hypot(b.x-a.x, b.y-a.y);
-    const bow = edgeLen * bowFraction;
-    const cp = { x: mid.x + nx * bow, y: mid.y + ny * bow };
-    if (i === 0) ctx.moveTo(a.x, a.y);
-    ctx.quadraticCurveTo(cp.x, cp.y, b.x, b.y);
-  }
+  quad.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
   ctx.closePath();
-  ctx.stroke();
-  ctx.restore();
-}
-function centroid(pts){
-  let sx=0, sy=0;
-  for (const p of pts) { sx += p.x; sy += p.y; }
-  return { x: sx/pts.length, y: sy/pts.length };
 }
 
 function drawCornerTicks(quad, color, len) {
   ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 3;
-  ctx.lineCap = 'round';
+  ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.lineCap = 'round';
   for (let i = 0; i < 4; i++) {
-    const a = quad[i];
-    const b = quad[(i+1)%4];
-    const c2 = quad[(i+3)%4];
-    const dab = norm(sub(b,a)); const dac = norm(sub(c2,a));
+    const a = quad[i], b = quad[(i+1)%4], c2 = quad[(i+3)%4];
+    const dab = norm(sub(b,a)), dac = norm(sub(c2,a));
     ctx.beginPath();
     ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + dab.x*len, a.y + dab.y*len);
     ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + dac.x*len, a.y + dac.y*len);
@@ -518,154 +422,179 @@ function drawCornerTicks(quad, color, len) {
 function sub(a,b){ return {x:a.x-b.x, y:a.y-b.y}; }
 function norm(v){ const n=Math.hypot(v.x,v.y)||1; return {x:v.x/n, y:v.y/n}; }
 
-function drawEdgeRing(W, H, color) {
+function drawCollimationPillow(quad, bowFraction, lineWidth, color) {
+  let sx=0, sy=0; for (const p of quad) { sx += p.x; sy += p.y; }
+  const c = { x: sx/4, y: sy/4 };
   ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 6;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 14;
-  ctx.strokeRect(3, 3, W-6, H-6);
+  ctx.strokeStyle = color; ctx.lineWidth = lineWidth; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i+1) % 4];
+    const mid = { x: (a.x+b.x)/2, y: (a.y+b.y)/2 };
+    let nx = mid.x - c.x, ny = mid.y - c.y;
+    const nlen = Math.hypot(nx, ny) || 1; nx /= nlen; ny /= nlen;
+    const edgeLen = Math.hypot(b.x-a.x, b.y-a.y);
+    const cp = { x: mid.x + nx * edgeLen * bowFraction, y: mid.y + ny * edgeLen * bowFraction };
+    if (i === 0) ctx.moveTo(a.x, a.y);
+    ctx.quadraticCurveTo(cp.x, cp.y, b.x, b.y);
+  }
+  ctx.closePath(); ctx.stroke(); ctx.restore();
+}
+
+// External cross: 4 pill arms with notch at center.  Crosshair fills the gap
+// when the small + at aim coincides with screen center (= perpendicular).
+function drawExternalCross(cx, cy, scale, color) {
+  ctx.save();
+  ctx.fillStyle = color;
+  function pill(x0, y0, w, h) {
+    const r = Math.min(w, h) / 2;
+    ctx.beginPath();
+    ctx.moveTo(x0 + r, y0); ctx.lineTo(x0 + w - r, y0);
+    ctx.arc(x0 + w - r, y0 + r, r, -Math.PI/2, Math.PI/2);
+    ctx.lineTo(x0 + r, y0 + h);
+    ctx.arc(x0 + r, y0 + r, r, Math.PI/2, -Math.PI/2);
+    ctx.closePath(); ctx.fill();
+  }
+  const gap = 18 * scale, armW = 4 * scale, armL = 36 * scale;
+  pill(cx - armW/2, cy - gap - armL, armW, armL);
+  pill(cx - armW/2, cy + gap, armW, armL);
+  pill(cx - gap - armL, cy - armW/2, armL, armW);
+  pill(cx + gap, cy - armW/2, armL, armW);
   ctx.restore();
 }
 
-// =============================================================================
-// Render
-// =============================================================================
-function applyCassetteTransform(p, map) {
-  // Compute screen-space corners of the cassette image quad and derive the
-  // homography from natural-image coords (0..px, 0..px) to those 4 corners.
-  const Wpx = SETTINGS.cassetteImgPx, Hpx = SETTINGS.cassetteImgPx;
-  const screenCorners = p.cassetteLocal.map(pt => map(applyH(p.H_local_to_img, pt.x, pt.y)));
-  const src = [
-    { x: 0,   y: 0 },
-    { x: Wpx, y: 0 },
-    { x: Wpx, y: Hpx },
-    { x: 0,   y: Hpx },
-  ];
-  const H = quadHomography(src, screenCorners);
-  if (!H) return;
-  cassetteImg.style.transform = matrix3dFromH(H);
-  cassetteImg.classList.add('show');
+// Small + with outline ring at the beam landing point on the cassette.
+function drawCenterPlus(cx, cy, color) {
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.strokeStyle = color; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 8); ctx.lineTo(cx, cy + 8);
+  ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy);
+  ctx.stroke();
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(cx, cy, 13, 0, Math.PI*2); ctx.stroke();
+  ctx.restore();
 }
 
-function drawScene() {
-  const W = window.innerWidth, H = window.innerHeight;
-  ctx.clearRect(0,0,W,H);
-  const map = frameToScreenScale();
-  const cx = W/2, cy = H/2;
+function drawEdgeRing(W, H, color) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.lineWidth = 4;
+  ctx.shadowColor = color; ctx.shadowBlur = 10;
+  ctx.strokeRect(2, 2, W-4, H-4);
+  ctx.restore();
+}
 
-  let inBounds = false;
+// SID gauge marker positioning
+function updateSidGauge(sidCm, ok) {
+  // Marker top in % within #sid-gauge container.  Map SID 30 -> top, 80 -> bottom
+  // of the active band (which starts at top:56px and ends at bottom:32px).
+  // Use the gauge's full height: container is 100% - 16px tall.
+  // Bar-active occupies top:56px to bottom:32px within the container.
+  // For a fluid mapping, position marker between those with linear interp.
+  if (!Number.isFinite(sidCm)) {
+    sidMarker.style.top  = '50%';
+    sidReadout.style.top = '50%';
+    sidReadout.textContent = '--';
+    sidMarker.classList.remove('bad');
+    sidReadout.classList.remove('bad');
+    return;
+  }
+  // Clamp 30..80 to active band, but allow extension above/below
+  const range = 80 - 30;
+  const t = clamp01((sidCm - 30) / range); // 0 at 30, 1 at 80
+  // Map t=0 to ~56px from top, t=1 to ~ (containerH - 32px - 24px /* readout */) from top
+  const containerH = document.getElementById('sid-gauge').clientHeight;
+  const yTopPx = 56 + t * (containerH - 56 - 32);
+  sidMarker.style.top = yTopPx + 'px';
+  sidReadout.style.top = (yTopPx - 24) + 'px';
+  sidReadout.textContent = sidCm.toFixed(0);
+  if (ok) { sidMarker.classList.remove('bad'); sidReadout.classList.remove('bad'); }
+  else    { sidMarker.classList.add('bad');    sidReadout.classList.add('bad'); }
+}
+
+// ============================================================================
+// Main render
+// ============================================================================
+function drawScene() {
+  const W = viewfinder.clientWidth, H = viewfinder.clientHeight;
+  ctx.clearRect(0,0,W,H);
   let allowed = false;
 
-  if (state.pose && map) {
+  if (state.pose) {
     const p = state.pose;
-    const activeScreen = p.activeImg.map(map);
+    const l2s = buildLocalToScreen(p);
 
-    const aimImgPt = applyH(p.H_local_to_img, p.aimLocal.x, p.aimLocal.y);
-    const aimScreen = map(aimImgPt);
+    // Apply transforms to the live video and the cassette image
+    applyVideoTransform(p, l2s);
+    applyCassetteTransform(p, l2s);
 
-    const fHalf = p.fieldHalf;
-    const fieldLocal = [
-      { x: p.aimLocal.x - fHalf, y: p.aimLocal.y - fHalf },
-      { x: p.aimLocal.x + fHalf, y: p.aimLocal.y - fHalf },
-      { x: p.aimLocal.x + fHalf, y: p.aimLocal.y + fHalf },
-      { x: p.aimLocal.x - fHalf, y: p.aimLocal.y + fHalf },
-    ];
-    const fieldScreen = fieldLocal.map(pt => map(applyH(p.H_local_to_img, pt.x, pt.y)));
-    inBounds = p.inBounds;
+    // Active area quad in cassette local cm
+    const half = p.half;
+    const activeLocal = [{ x:-half, y:-half }, { x: half, y:-half }, { x: half, y: half }, { x:-half, y: half }];
+    const activeScreen = pts2screen(activeLocal, l2s);
 
-    // Cassette image: project onto the cassette plane
-    applyCassetteTransform(p, map);
-
-    // Light tint over the active area to read state at a glance
+    // In bounds tints + corner ticks
     pathQuad(activeScreen);
-    ctx.fillStyle = inBounds ? COLORS.active : COLORS.outBoundsBg;
+    ctx.fillStyle = p.inBounds ? 'rgba(180,220,255,0.05)' : 'rgba(255,71,87,0.10)';
     ctx.fill();
+    drawCornerTicks(activeScreen, p.inBounds ? COLORS.collim : COLORS.red, 22);
 
-    // Active-area corner ticks (green when capture allowed, red otherwise)
-    drawCornerTicks(activeScreen, inBounds ? COLORS.green : '#ff4757', 22);
-
-    // Collimation pillow (only when in bounds)
-    if (inBounds && fHalf > 0) {
-      drawCollimationPillow(fieldScreen, 0.025, 3, COLORS.green);
+    // Collimation pillow (only in bounds)
+    if (p.inBounds && p.fieldHalf > 0) {
+      const fh = p.fieldHalf, ax = p.aimLocal.x, ay = p.aimLocal.y;
+      const fLocal = [{ x: ax-fh, y: ay-fh }, { x: ax+fh, y: ay-fh }, { x: ax+fh, y: ay+fh }, { x: ax-fh, y: ay+fh }];
+      const fScreen = pts2screen(fLocal, l2s);
+      drawCollimationPillow(fScreen, 0.025, 3, COLORS.collim);
     }
 
-    // Snap-and-complete center mark: small + ring at beam landing point;
-    // large external cross at screen center fades in below perpThresholdDeg
-    // and is fully gone by perpFadeMaxDeg.
-    const targetAlpha = clamp01(
-      1 - (p.tiltDeg - SETTINGS.perpThresholdDeg) /
-          (SETTINGS.perpFadeMaxDeg - SETTINGS.perpThresholdDeg)
-    );
-    state.perpAlpha = lerp(state.perpAlpha, targetAlpha, 0.25);
-
-    drawCenterPlus(aimScreen.x, aimScreen.y, inBounds ? COLORS.centerBlack : '#ff4757');
-    drawExternalCross(cx, cy, 1.0, COLORS.centerBlack, state.perpAlpha);
+    // External cross at viewfinder center (camera optical axis)
+    drawExternalCross(W/2, H/2, 1.0, COLORS.black);
+    // Small + at aim point on cassette (after rectification, this lies in
+    // cassette local coords).  When perpendicular, aim point projects to
+    // viewfinder center, completing the cross visually.
+    const aimScreen = applyH(l2s.H_l_to_s, p.aimLocal.x, p.aimLocal.y);
+    drawCenterPlus(aimScreen.x, aimScreen.y, p.inBounds ? COLORS.black : COLORS.red);
 
     // HUD readouts
-    const sidCm = p.sidCm;
-    const ssdCm = sidCm - SETTINGS.patientThicknessCm;
-    sidVal.textContent  = sidCm.toFixed(0);
-    ssdVal.textContent  = ssdCm.toFixed(0);
-    tiltVal.textContent = p.tiltDeg.toFixed(0);
+    const ssdCm = p.sidCm - SETTINGS.patientThicknessCm;
+    ssdVal.textContent = ssdCm.toFixed(0);
+    const sidOk = p.sidCm >= SETTINGS.sidMin && p.sidCm <= SETTINGS.sidMax;
+    const ssdOk = ssdCm >= SETTINGS.ssdMin;
+    pillSSD.classList.toggle('good', ssdOk);
+    pillSSD.classList.toggle('bad', !ssdOk);
+    updateSidGauge(p.sidCm, sidOk);
 
-    setPillState(pillSID, sidCm < SETTINGS.sidMin || sidCm > SETTINGS.sidMax ? 'bad' : 'good');
-    setPillState(pillSSD, ssdCm < SETTINGS.ssdMin ? 'bad' : 'good');
-    setPillState(pillTilt,
-      p.tiltDeg <= SETTINGS.perpThresholdDeg ? 'good'
-        : p.tiltDeg <= SETTINGS.perpFadeMaxDeg ? 'warn' : 'bad');
-
+    // Interlock priority
     let warning = null;
-    if (!inBounds) warning = 'OUT OF BOUNDS - ALIGN X-RAY BEAM';
-    else if (sidCm > SETTINGS.sidMax) warning = 'EMITTER TOO FAR FROM CASSETTE';
-    else if (sidCm < SETTINGS.sidMin) warning = 'EMITTER TOO CLOSE TO CASSETTE';
+    if (!p.inBounds) warning = 'OUT OF BOUNDS - ALIGN BEAM';
+    else if (p.sidCm > SETTINGS.sidMax) warning = 'TOO FAR FROM CASSETTE';
+    else if (p.sidCm < SETTINGS.sidMin) warning = 'TOO CLOSE TO CASSETTE';
     else if (ssdCm < SETTINGS.ssdMin) warning = 'TOO CLOSE TO ANATOMY';
-    else if (state.meanLuma > 220) warning = 'HARSH LIGHTING - REPOSITION';
-    if (warning) {
-      interlock.textContent = warning;
-      interlock.classList.remove('hidden');
-    } else {
-      interlock.classList.add('hidden');
-    }
+    else if (state.meanLuma > 220) warning = 'HARSH LIGHTING';
+    if (warning) { interlock.textContent = warning; interlock.classList.remove('hidden'); }
+    else { interlock.classList.add('hidden'); }
 
-    allowed = inBounds &&
-      sidCm >= SETTINGS.sidMin && sidCm <= SETTINGS.sidMax &&
-      ssdCm >= SETTINGS.ssdMin;
-
+    allowed = p.inBounds && sidOk && ssdOk;
     badgeDetect.classList.add('hidden');
   } else {
-    cassetteImg.classList.remove('show');
-    ssdVal.textContent  = '--';
-    sidVal.textContent  = '--';
-    tiltVal.textContent = '--';
-    setPillState(pillSID, '');
-    setPillState(pillSSD, '');
-    setPillState(pillTilt, '');
-
+    clearTransforms();
+    ssdVal.textContent = '--';
+    pillSSD.classList.remove('good','bad');
+    updateSidGauge(NaN, false);
+    drawExternalCross(W/2, H/2, 1.0, 'rgba(255,255,255,0.6)');
     const lostFor = performance.now() - state.lastDetectT;
     if (lostFor > 1200) {
-      interlock.textContent = state.meanLuma > 220
-        ? 'HARSH LIGHTING - CASSETTE NOT VISIBLE'
-        : (state.meanLuma < 25
-            ? 'EMITTER FRONT FACE COVERED'
-            : 'CASSETTE NOT DETECTED');
+      interlock.textContent = state.meanLuma > 220 ? 'HARSH LIGHTING - CASSETTE NOT VISIBLE'
+        : state.meanLuma < 25 ? 'EMITTER FRONT FACE COVERED'
+        : 'CASSETTE NOT DETECTED';
       interlock.classList.remove('hidden');
-    } else {
-      interlock.classList.add('hidden');
-    }
-
-    state.perpAlpha = 0;
-    drawExternalCross(cx, cy, 1.0, 'rgba(255,255,255,0.55)', 1);
+    } else { interlock.classList.add('hidden'); }
     badgeDetect.classList.remove('hidden');
   }
 
-  // Grayscale-outside-active-area effect (still useful even with cassette overlay)
-  video.classList.toggle('dim', !inBounds);
-
-  // Edge ring as overall capture-allowed indicator
-  const ringColor = allowed
-    ? 'rgba(41, 211, 106, 0.95)'
-    : (state.pose ? 'rgba(255, 71, 87, 0.7)' : 'rgba(255,179,2,0.6)');
+  // Edge ring color
+  const ringColor = allowed ? 'rgba(41,211,106,0.95)'
+    : (state.pose ? 'rgba(255,71,87,0.7)' : 'rgba(255,179,2,0.6)');
   drawEdgeRing(W, H, ringColor);
 
   triggerBtn.classList.toggle('armed', allowed);
@@ -675,20 +604,9 @@ function drawScene() {
   state.prevAllowed = allowed;
 }
 
-function setPillState(el, cls) {
-  el.classList.remove('good','warn','bad');
-  if (cls) el.classList.add(cls);
-}
-
-function pathQuad(quad){
-  ctx.beginPath();
-  quad.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
-  ctx.closePath();
-}
-
-// =============================================================================
+// ============================================================================
 // Main loop
-// =============================================================================
+// ============================================================================
 function loop() {
   if (!state.running) return;
   const qr = detectQR();
@@ -698,17 +616,16 @@ function loop() {
     state.pose = buildPose(qr);
     state.lastDetectT = now;
   } else if (now - state.lastDetectT > 400) {
-    state.pose = null;
-    state.qr = null;
+    state.pose = null; state.qr = null;
     cornerFilters = makeCornerFilters();
   }
   drawScene();
   requestAnimationFrame(loop);
 }
 
-// =============================================================================
+// ============================================================================
 // Controls (auto-only collimator; no A/M toggle)
-// =============================================================================
+// ============================================================================
 function bindControls() {
   document.querySelectorAll('[data-act]').forEach(b => {
     b.addEventListener('click', e => {
@@ -734,11 +651,6 @@ function bindControls() {
     flash.classList.add('on');
     setTimeout(()=>{ flash.classList.remove('on'); state.capturing=false; }, 220);
   });
-  let pressT;
-  triggerBtn.addEventListener('touchstart', () => {
-    pressT = setTimeout(()=>diag.classList.toggle('hidden'), 1500);
-  });
-  triggerBtn.addEventListener('touchend', () => clearTimeout(pressT));
 }
 function stepArr(arr, val, dir){
   const i = arr.indexOf(val);
@@ -746,9 +658,9 @@ function stepArr(arr, val, dir){
   return arr[j];
 }
 
-// =============================================================================
+// ============================================================================
 // Boot
-// =============================================================================
+// ============================================================================
 startBtn.addEventListener('click', async () => {
   startScreen.classList.add('hidden');
   await startCamera();
