@@ -1,49 +1,74 @@
 'use strict';
 
 // =============================================================================
-// MC2 Viewfinder Trainer v4
-// - Square viewfinder profile (matches device LCD)
-// - Detector-centric rectification: cassette plane fixed-size on screen,
-//   tilt/distance corrected, phone roll preserved (option B)
-// - Full uncropped cassette image rides on the rectified plane
-// - Vertical SID gauge with floating marker
+// MC2 Viewfinder Trainer 2.0
+//
+// Two routes:
+//   - tutorial: 5 gated levels (aim → center → perp → SID → safe expose)
+//   - play:     free practice with full HUD (matches v1 behavior)
+//
+// Pose math (ArUco detection, homography, tilt, SID, aim) is ported verbatim
+// from v1 / app.js; only the UI shell, tutorial gating, and prompt strips are
+// new in 2.0.
 // =============================================================================
 
 // ---- DOM ----
-const startScreen = document.getElementById('start-screen');
-const startBtn    = document.getElementById('start-btn');
-const calibInput  = document.getElementById('calib-input');
-const thickInput  = document.getElementById('thick-input');
-// v9: camera fills the entire LCD - HUD overlays on top.  Use #lcd as the
-// reference for canvas sizing so the overlay aligns with the camera feed.
-const viewfinder  = document.getElementById('lcd');
-const video       = document.getElementById('video');
-const cassetteImg = document.getElementById('cassette-img');
-const overlay     = document.getElementById('overlay');
-const flash       = document.getElementById('flash');
-const ctx         = overlay.getContext('2d');
-const ssdVal      = document.getElementById('ssd-value');
-const sidReadout  = document.getElementById('sid-readout');
-const interlock   = document.getElementById('interlock');
-const badgeDetect = document.getElementById('badge-detect');
-const kvValEl     = document.getElementById('kv-value');
-const masValEl    = document.getElementById('mas-value');
-const modeValEl   = document.getElementById('mode-value');
-const triggerBtn  = document.getElementById('trigger');
-const crosshair   = document.getElementById('crosshair');
-const extCrossImg = document.getElementById('external-cross');
-const ctrCrossImg = document.getElementById('center-cross');
-const ssdBg       = document.getElementById('ssd-bg');
-const modeShield  = document.getElementById('mode-shield');
-const kvSlots  = [1,2,3,4,5].map(i => document.getElementById('kv-slot-'+i));
-const masSlots = [1,2,3,4,5].map(i => document.getElementById('mas-slot-'+i));
+const startScreen   = document.getElementById('start-screen');
+const routeTutorial = document.getElementById('route-tutorial');
+const routePlay     = document.getElementById('route-play');
+const tileStars     = document.getElementById('tile-stars');
 
-// ---- Settings ----
+const appShell      = document.getElementById('app');
+const backBtn       = document.getElementById('back-btn');
+const muteBtn       = document.getElementById('mute-btn');
+const levelPill     = document.getElementById('level-pill');
+
+const promptStrip   = document.getElementById('prompt-strip');
+const promptStep    = document.getElementById('prompt-step');
+const promptText    = document.getElementById('prompt-text');
+const promptHint    = document.getElementById('prompt-hint');
+
+const viewfinderEl  = document.getElementById('viewfinder');
+const lcd           = document.getElementById('lcd');
+const video         = document.getElementById('video');
+const cassetteImg   = document.getElementById('cassette-img');
+const overlay       = document.getElementById('overlay');
+const ctx           = overlay.getContext('2d');
+const flash         = document.getElementById('flash');
+
+const ssdVal        = document.getElementById('ssd-value');
+const sidReadout    = document.getElementById('sid-readout');
+const interlock     = document.getElementById('interlock');
+const badgeDetect   = document.getElementById('badge-detect');
+const tutTarget     = document.getElementById('tutorial-target');
+const lcOverlay     = document.getElementById('level-complete');
+const lcStarsEl     = document.getElementById('lc-stars');
+const lcSubEl       = document.getElementById('lc-sub');
+
+const kvValEl       = document.getElementById('kv-value');
+const masValEl      = document.getElementById('mas-value');
+const modeValEl     = document.getElementById('mode-value');
+const ssdBg         = document.getElementById('ssd-bg');
+const modeShield    = document.getElementById('mode-shield');
+const kvSlots       = [1,2,3,4,5].map(i => document.getElementById('kv-slot-'+i));
+const masSlots      = [1,2,3,4,5].map(i => document.getElementById('mas-slot-'+i));
+
+const crosshair     = document.getElementById('crosshair');
+const extCrossImg   = document.getElementById('external-cross');
+const ctrCrossImg   = document.getElementById('center-cross');
+
+const holdMeter     = document.getElementById('hold-meter');
+const holdFill      = document.getElementById('hold-fill');
+const holdLabel     = document.getElementById('hold-label');
+const liveReadouts  = document.getElementById('live-readouts');
+
+const skipBtn       = document.getElementById('skip-btn');
+const triggerBtn    = document.getElementById('trigger');
+
+// ---- Settings (fixed; no scale input — printed cards are 9 cm) ----
 const SETTINGS = {
   qrPhysicalCm: 9.0,
   activeAreaCm: 21.35,
-  // WEIGHT BEARING ZONE bounds in the cassette image, as fractions.  Tuned
-  // so the active-area outline aligns with the WBZ graphic on screen.
   cassetteImgActiveFrac: 0.36,
   cassetteImgActiveCx:   0.485,
   cassetteImgActiveCy:   0.585,
@@ -55,33 +80,45 @@ const SETTINGS = {
   oeMinCutoff: 1.2, oeBeta: 0.04, oeDerivCutoff: 1.0,
   procMaxDim: 720,
   cassetteImgPx: 720,
-  // Active area takes this fraction of the viewfinder side.  With
-  // cassetteImgActiveFrac = 0.40, the full cassette image extends to
-  // (activeAreaScreenFrac / 0.40) of the viewfinder side - i.e. ~83% of
-  // the viewfinder, which puts the cassette at roughly half the phone
-  // screen height (matches the user-spec "half overall screen height").
   activeAreaScreenFrac: 0.33,
 };
 
 const COLORS = {
-  collim:     '#077B51',
-  green:      '#3DB06B',
-  red:        '#ff4757',
-  black:      '#000000',
+  collim: '#077B51',
+  green:  '#3DB06B',
+  red:    '#ff4757',
+  amber:  '#ffb302',
 };
 
-// ---- State ----
+// ---- Top-level mode + state ----
+const MODE = { NONE: 0, TUTORIAL: 1, PLAY: 2 };
 const state = {
+  mode: MODE.NONE,
   running: false,
+
+  // pose
+  qr: null, pose: null, lastDetectT: 0,
+  frameW: 0, frameH: 0, meanLuma: 0,
+  prevAllowed: false,
+
+  // play HUD values
   kv: 60, kvOpts: [40,50,60,70,80],
   mas: 0.16, masOpts: [0.04,0.08,0.16,0.25,0.40],
   modeIdx: 1, modes: ['Single','DDR','Fluoro','Photo'],
-  qr: null, pose: null, lastDetectT: 0,
-  frameW: 0, frameH: 0,
-  capturing: false, prevAllowed: false, meanLuma: 0,
+  capturing: false,
+
+  // tutorial
+  levelIdx: 0,
+  holdMs: 0,                 // accumulated time in spec
+  driftCount: 0,             // each time we lose pass, count it (for star)
+  levelStartT: 0,
+  paused: false,             // true during level-complete overlay
+  stars: loadStars(),        // best stars per level
 };
 
-// ---- One-Euro filter ----
+// ============================================================================
+// One-Euro filter (from v1)
+// ============================================================================
 class OneEuro {
   constructor(minCutoff, beta, dCutoff) {
     this.minCutoff = minCutoff; this.beta = beta; this.dCutoff = dCutoff;
@@ -102,20 +139,18 @@ class OneEuro {
   }
 }
 function makeCornerFilters() {
-  const arr = [];
-  for (let i=0;i<4;i++){
-    arr.push({
-      x: new OneEuro(SETTINGS.oeMinCutoff, SETTINGS.oeBeta, SETTINGS.oeDerivCutoff),
-      y: new OneEuro(SETTINGS.oeMinCutoff, SETTINGS.oeBeta, SETTINGS.oeDerivCutoff),
-    });
-  }
-  return arr;
+  return Array.from({length:4}, () => ({
+    x: new OneEuro(SETTINGS.oeMinCutoff, SETTINGS.oeBeta, SETTINGS.oeDerivCutoff),
+    y: new OneEuro(SETTINGS.oeMinCutoff, SETTINGS.oeBeta, SETTINGS.oeDerivCutoff),
+  }));
 }
 let cornerFilters = makeCornerFilters();
 const sidFilter  = new OneEuro(0.8, 0.02, 1.0);
 const tiltFilter = new OneEuro(0.8, 0.02, 1.0);
 
-// ---- Camera ----
+// ============================================================================
+// Camera + canvas resize
+// ============================================================================
 async function startCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -129,27 +164,26 @@ async function startCamera() {
       const onMeta = () => { video.removeEventListener('loadedmetadata', onMeta); res(); };
       video.addEventListener('loadedmetadata', onMeta);
     });
-    // Video stays full-cover inside the viewfinder; we don't rectify it
-    // (matches the tablet prototype's MC2 Static behavior - cassette image
-    // is the rectified element, the live video shows whatever the camera sees).
-
-    const mm = parseFloat(calibInput.value);
-    if (Number.isFinite(mm) && mm >= 10 && mm <= 200) SETTINGS.qrPhysicalCm = mm / 10;
-    const th = parseFloat(thickInput.value);
-    if (Number.isFinite(th) && th >= 0 && th <= 40) SETTINGS.patientThicknessCm = th;
-
     state.running = true;
     resizeCanvas();
     requestAnimationFrame(loop);
   } catch (err) {
     alert('Camera unavailable: ' + (err && err.message ? err.message : err));
-    startScreen.classList.remove('hidden');
+    showStartScreen();
+  }
+}
+
+function stopCamera() {
+  state.running = false;
+  if (video.srcObject) {
+    try { video.srcObject.getTracks().forEach(t => t.stop()); } catch(_) {}
+    video.srcObject = null;
   }
 }
 
 function resizeCanvas() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const W = viewfinder.clientWidth, H = viewfinder.clientHeight;
+  const W = lcd.clientWidth, H = lcd.clientHeight;
   overlay.width  = Math.round(W * dpr);
   overlay.height = Math.round(H * dpr);
   overlay.style.width  = W + 'px';
@@ -160,13 +194,13 @@ window.addEventListener('resize', resizeCanvas);
 window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 200));
 if (window.visualViewport) window.visualViewport.addEventListener('resize', resizeCanvas);
 
-// ---- ArUco detection (One-Euro smoothed corners) ----
-// Uses js-aruco2 with the ARUCO_4X4_1000 dictionary (matches OpenCV's
-// DICT_4X4_1000 / DICT_4X4_50 ID 0 we generated for the printed marker).
+// ============================================================================
+// ArUco detection (from v1)
+// ============================================================================
 const work = document.createElement('canvas');
 const wctx = work.getContext('2d', { willReadFrequently: true });
 const arDetector = new AR.Detector({ dictionaryName: 'ARUCO_4X4_1000' });
-const TARGET_MARKER_ID = 0; // we generated ID 0; ignore other markers
+const TARGET_MARKER_ID = 0;
 
 function detectQR() {
   const vw = video.videoWidth, vh = video.videoHeight;
@@ -187,19 +221,15 @@ function detectQR() {
   }
   state.meanLuma = samples ? luma/samples : 0;
 
-  // Run ArUco detector on the working frame
   let markers;
   try { markers = arDetector.detectImage(w, h, imgData.data); }
   catch(e) { return null; }
   if (!markers || !markers.length) return null;
 
-  // Pick our target marker (ID 0); fall back to lowest-Hamming-distance marker
   let m = markers.find(mk => mk.id === TARGET_MARKER_ID);
   if (!m) m = markers[0];
   if (!m || !m.corners || m.corners.length !== 4) return null;
 
-  // js-aruco2 returns corners in clockwise order starting from top-left,
-  // matching the order jsQR used (TL, TR, BR, BL).
   const rawCorners = m.corners.map(c => ({ x: c.x, y: c.y }));
   const t = performance.now();
   const smoothed = rawCorners.map((p, i) => ({
@@ -209,7 +239,9 @@ function detectQR() {
   return { corners: smoothed, raw: rawCorners, id: m.id, t, scaleVid: 1/scale };
 }
 
-// ---- Linear algebra: 8x8 solver, 3x3 homography, inverse, 3x3 multiply ----
+// ============================================================================
+// Linear algebra (from v1)
+// ============================================================================
 function solve8(A, b) {
   const n = 8;
   const M = new Float64Array(n*(n+1));
@@ -264,7 +296,6 @@ function mul3x3(P, Q) {
 function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
 function clamp01(v){ return Math.max(0, Math.min(1, v)); }
 
-// Tilt from homography decomposition (pinhole intrinsics)
 function tiltFromH(H, fx, fy, cx, cy) {
   const Hn = [
     (H[0]-cx*H[6])/fx, (H[1]-cx*H[7])/fx, (H[2]-cx*H[8])/fx,
@@ -288,19 +319,19 @@ function tiltFromH(H, fx, fy, cx, cy) {
 
 // ============================================================================
 // Pose: SID, tilt, aim point, in-bounds, fit-to-bounds collimator field
+// (verbatim port from v1)
 // ============================================================================
 function buildPose(qr) {
   const q = SETTINGS.qrPhysicalCm / 2;
   const qrLocal = [{ x:-q, y:-q }, { x: q, y:-q }, { x: q, y: q }, { x:-q, y: q }];
-  const qrImg = qr.corners; // working-frame px
+  const qrImg = qr.corners;
 
   const H_l_to_img = homography4(qrLocal, qrImg);
   if (!H_l_to_img) return null;
   const H_img_to_l = invert3(H_l_to_img);
   if (!H_img_to_l) return null;
 
-  // Scale homography to native video px (matrix3d targets video pixel space).
-  const s = qr.scaleVid; // working->video px scale factor
+  const s = qr.scaleVid;
   const H_l_to_videoPx = [
     H_l_to_img[0]*s, H_l_to_img[1]*s, H_l_to_img[2]*s,
     H_l_to_img[3]*s, H_l_to_img[4]*s, H_l_to_img[5]*s,
@@ -318,11 +349,9 @@ function buildPose(qr) {
   sidCm = sidFilter.filter(sidCm, t);
   tiltDeg = tiltFilter.filter(tiltDeg, t);
 
-  // Aim point = where image center maps onto cassette plane
   const aimImg = { x: state.frameW/2, y: state.frameH/2 };
   const aimLocal = applyH(H_img_to_l, aimImg.x, aimImg.y);
 
-  // Auto-collimator with fit-to-bounds (per IFU + user spec)
   const half = SETTINGS.activeAreaCm / 2;
   const minHalf = SETTINGS.minFieldCmPerSid * sidCm / 2;
   const maxFitHalfX = half - Math.abs(aimLocal.x);
@@ -332,7 +361,6 @@ function buildPose(qr) {
   const fieldHalf = willFit ? Math.max(minHalf, Math.min(half, maxFitHalf)) : 0;
   const inBounds = willFit;
 
-  // Roll: angle of QR's top edge in image space (preserved on screen, option B)
   const dx = qrImg[1].x - qrImg[0].x;
   const dy = qrImg[1].y - qrImg[0].y;
   const roll = Math.atan2(dy, dx);
@@ -340,24 +368,19 @@ function buildPose(qr) {
   return {
     H_l_to_img, H_img_to_l, H_l_to_videoPx, H_videoPx_to_l,
     sidCm, tiltDeg, roll,
-    aimLocal,
-    fieldHalf, half, inBounds,
+    aimLocal, fieldHalf, half, inBounds,
   };
 }
 
 // ============================================================================
-// Rectification: build local->screen similarity (rotation + scale + translate)
-// to be the same transform for both video (via matrix3d) and overlay drawing.
+// Rectification (from v1)
 // ============================================================================
 function buildLocalToScreen(p) {
-  const W = viewfinder.clientWidth, H = viewfinder.clientHeight;
-  // Active area side projected on screen
+  const W = lcd.clientWidth, H = lcd.clientHeight;
   const aaSide = SETTINGS.activeAreaScreenFrac * Math.min(W, H);
-  // cm -> px: aaSide / activeAreaCm
   const scale = aaSide / SETTINGS.activeAreaCm;
   const cx = W / 2, cy = H / 2;
   const cosR = Math.cos(p.roll), sinR = Math.sin(p.roll);
-  // 3x3 H_local_to_screen (similarity)
   const H_l_to_s = [
     scale * cosR, -scale * sinR, cx,
     scale * sinR,  scale * cosR, cy,
@@ -366,45 +389,25 @@ function buildLocalToScreen(p) {
   return { H_l_to_s, scale, cx, cy, W, H, aaSide };
 }
 
-// matrix3d builder for a 3x3 row-major homography that maps natural element px
-// (0..elementWidth, 0..elementHeight) -> screen px when applied with
-// transform-origin: 0 0.
 function matrix3dFromH(H) {
   const a=H[0],b=H[1],c=H[2], d=H[3],e=H[4],f=H[5], g=H[6],h=H[7],i=H[8];
   return 'matrix3d(' + [a,d,0,g, b,e,0,h, 0,0,1,0, c,f,0,i].join(',') + ')';
 }
 
-// Apply CSS transform to the cassette image (similarity, 2D only).
 function applyCassetteTransform(p, l2s) {
-  // Cassette image's natural pixels (0..720, 0..720) cover cassetteImgSpanCm.
-  // The active area is cassetteImgActiveFrac of the image, centered horizontally
-  // but offset vertically by cassetteImgActiveCy.
   const Wpx = SETTINGS.cassetteImgPx;
   const imgSpanCm = SETTINGS.activeAreaCm / SETTINGS.cassetteImgActiveFrac;
-  // Map image px -> cassette local cm
-  // active-area center in image px: (Wpx/2, Wpx * cassetteImgActiveCy)
   const aaCxImg = Wpx * (SETTINGS.cassetteImgActiveCx ?? 0.5);
   const aaCyImg = Wpx * SETTINGS.cassetteImgActiveCy;
-  // px -> cm scale: imgSpanCm / Wpx
   const pxToCm = imgSpanCm / Wpx;
-  // T_imgPx_to_local: shift by -(aaCxImg, aaCyImg), then scale by pxToCm
-  // T_imgPx_to_local = [pxToCm, 0, -aaCxImg*pxToCm; 0, pxToCm, -aaCyImg*pxToCm; 0,0,1]
   const T_i_to_l = [
-    pxToCm, 0,      -aaCxImg * pxToCm,
-    0,      pxToCm, -aaCyImg * pxToCm,
-    0,      0,      1,
+    pxToCm, 0, -aaCxImg * pxToCm,
+    0, pxToCm, -aaCyImg * pxToCm,
+    0, 0, 1,
   ];
-  // Compose: T_i_to_s = H_l_to_s * T_i_to_l
   const T_i_to_s = mul3x3(l2s.H_l_to_s, T_i_to_l);
   cassetteImg.style.transform = matrix3dFromH(T_i_to_s);
   cassetteImg.classList.add('show');
-}
-
-// Apply CSS transform to the video element (perspective rectification).
-function applyVideoTransform(p, l2s) {
-  // T_videoPx_to_screen = H_l_to_s * H_videoPx_to_l
-  const T = mul3x3(l2s.H_l_to_s, p.H_videoPx_to_l);
-  video.style.transform = matrix3dFromH(T);
 }
 
 function clearTransforms() {
@@ -412,67 +415,22 @@ function clearTransforms() {
 }
 
 // ============================================================================
-// Drawing primitives (in screen px - we map cassette local through l2s)
+// Drawing (from v1)
 // ============================================================================
 function pts2screen(localPts, l2s) {
   return localPts.map(p => applyH(l2s.H_l_to_s, p.x, p.y));
 }
-// Light up kV / mAs fill pills based on current setting index (40 -> 1 pill,
-// 50 -> 2 pills, ..., 80 -> 5 pills; same pattern for mAs).
-function updateKvMasFills() {
-  const kvIdx  = state.kvOpts.indexOf(state.kv);
-  const masIdx = state.masOpts.indexOf(state.mas);
-  const kvCount  = kvIdx  < 0 ? 0 : (kvIdx  + 1);
-  const masCount = masIdx < 0 ? 0 : (masIdx + 1);
-  for (let i = 0; i < 5; i++) {
-    kvSlots[i].classList.toggle('on', i < kvCount);
-    masSlots[i].classList.toggle('on', i < masCount);
-  }
-}
 
-function pathQuad(quad){
-  ctx.beginPath();
-  quad.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
-  ctx.closePath();
-}
-
-// Solid black outline + inner white outline around the active area.
-// Stroke twice on the same path - black thick first, then thinner white on
-// top - which leaves a black band on the outside, white band in the middle,
-// then black band on the inside (matches WBZ box on the cassette image).
-// Active-area outline: solid black outer + white inner, ALWAYS - never
-// changes color based on bounds (per user spec; the colored border is the
-// box-shadow outside the whole viewfinder).
-function drawActiveAreaOutline(quad, _inBounds /* unused */) {
+function drawActiveAreaOutline(quad) {
   ctx.save();
   ctx.lineJoin = 'round';
   ctx.beginPath();
   quad.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
   ctx.closePath();
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 5;
-  ctx.stroke();
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 5; ctx.stroke();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
   ctx.restore();
 }
-
-function drawCornerTicks(quad, color, len) {
-  ctx.save();
-  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineCap = 'butt';
-  for (let i = 0; i < 4; i++) {
-    const a = quad[i], b = quad[(i+1)%4], c2 = quad[(i+3)%4];
-    const dab = norm(sub(b,a)), dac = norm(sub(c2,a));
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + dab.x*len, a.y + dab.y*len);
-    ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + dac.x*len, a.y + dac.y*len);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-function sub(a,b){ return {x:a.x-b.x, y:a.y-b.y}; }
-function norm(v){ const n=Math.hypot(v.x,v.y)||1; return {x:v.x/n, y:v.y/n}; }
 
 function drawCollimationPillow(quad, bowFraction, lineWidth, color) {
   let sx=0, sy=0; for (const p of quad) { sx += p.x; sy += p.y; }
@@ -493,78 +451,31 @@ function drawCollimationPillow(quad, bowFraction, lineWidth, color) {
   ctx.closePath(); ctx.stroke(); ctx.restore();
 }
 
-// External cross: 4 white-filled, black-outlined pill arms with a notch at
-// center.  Geometry from `External cross.svg` (arm width 6, length 38, gap
-// 51 in 720-unit reference).  White fill + black stroke matches the actual
-// SVG and stays visible against any camera background.
-function drawExternalCross(cx, cy, vfSide, _unused) {
+// Draw a target ring on the cassette plane at level objective
+function drawLevelTarget(l2s) {
+  const lvl = MC2_LEVELS[state.levelIdx];
+  if (!lvl) return;
+  let radiusCm = null;
+  if      (lvl.id === 'aim')    radiusCm = MC2_TUNING.aimRadiusCm;
+  else if (lvl.id === 'center') radiusCm = MC2_TUNING.centerRadiusCm;
+  if (radiusCm == null) return;
+
+  const cx = l2s.cx, cy = l2s.cy;
+  const rPx = radiusCm * l2s.scale;
+
+  const r = state.pose ? Math.hypot(state.pose.aimLocal.x, state.pose.aimLocal.y) : Infinity;
+  const inSpec = r <= radiusCm;
+
   ctx.save();
-  function pill(x, y, w, h) {
-    // Rounded rectangle that works for any aspect ratio (arcTo handles both
-    // horizontal and vertical pills correctly).
-    const r = Math.min(w, h) / 2;
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y,     x + w, y + r,     r);
-    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-    ctx.arcTo(x,     y + h, x, y + h - r,     r);
-    ctx.arcTo(x,     y,     x + r, y,         r);
-    ctx.closePath();
-    ctx.fillStyle = '#fff';
-    ctx.fill();
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = Math.max(1, vfSide * (1.5 / 720));
-    ctx.stroke();
-  }
-  // Bumped slightly from SVG ref (6->7 width, 38->44 length) so the crosshair
-  // reads at typical phone-screen viewfinder sizes (vfSide ~ 360-420 px).
-  const gap  = vfSide * (51 / 720);
-  const armW = Math.max(4, vfSide * (7 / 720));
-  const armL = Math.max(20, vfSide * (44 / 720));
-  pill(cx - armW/2, cy - gap - armL, armW, armL);
-  pill(cx - armW/2, cy + gap, armW, armL);
-  pill(cx - gap - armL, cy - armW/2, armL, armW);
-  pill(cx + gap, cy - armW/2, armL, armW);
+  ctx.setLineDash([6, 6]);
+  ctx.strokeStyle = inSpec ? COLORS.green : COLORS.amber;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.restore();
 }
 
-// Small "+" at beam landing point. White fill + black stroke matching
-// Official Viewfinder.svg's inner plus (6 wide x 30 long in 720-unit ref).
-function drawCenterPlus(cx, cy, vfSide, _unused) {
-  ctx.save();
-  function pill(x, y, w, h) {
-    const r = Math.min(w, h) / 2;
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y,     x + w, y + r,     r);
-    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-    ctx.arcTo(x,     y + h, x, y + h - r,     r);
-    ctx.arcTo(x,     y,     x + r, y,         r);
-    ctx.closePath();
-    ctx.fillStyle = '#fff';
-    ctx.fill();
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = Math.max(1, vfSide * (1.5 / 720));
-    ctx.stroke();
-  }
-  const armW = Math.max(4, vfSide * (7 / 720));
-  const armL = Math.max(16, vfSide * (34 / 720));
-  pill(cx - armW/2, cy - armL/2, armW, armL);
-  pill(cx - armL/2, cy - armW/2, armL, armW);
-  ctx.restore();
-}
-
-function drawEdgeRing(W, H, color) {
-  ctx.save();
-  ctx.strokeStyle = color; ctx.lineWidth = 4;
-  ctx.shadowColor = color; ctx.shadowBlur = 10;
-  ctx.strokeRect(2, 2, W-4, H-4);
-  ctx.restore();
-}
-
-// SID gauge: position the floating readout pill on the vertical bar.
-// Bar runs from top 21.53% to top 84.03% of the LCD (62.5% tall).
-// Map SID 30..80 cm to that range; clamp out-of-range to the bar ends.
 function updateSidGauge(sidCm, ok) {
   if (!Number.isFinite(sidCm)) {
     sidReadout.style.top = '47.83%';
@@ -573,42 +484,46 @@ function updateSidGauge(sidCm, ok) {
     sidReadout.classList.remove('good');
     return;
   }
-  // Direction: closer (lower SID) -> lower on bar; further (higher SID) ->
-  // higher on bar.  So map SID 30 cm -> bottom of active range, 80 cm -> top.
-  const t = clamp01((sidCm - 30) / (80 - 30)); // 0 at 30, 1 at 80
+  const t = clamp01((sidCm - 30) / (80 - 30));
   const topPct = 73.61 - t * (73.61 - 31.94);
   sidReadout.style.top = (topPct - 4.86 / 2) + '%';
   sidReadout.textContent = sidCm.toFixed(0);
-  // Green when inside 30..80 range, red when outside.
   sidReadout.classList.toggle('good', ok);
   sidReadout.classList.toggle('bad', !ok);
 }
 
+function updateKvMasFills() {
+  const kvIdx  = state.kvOpts.indexOf(state.kv);
+  const masIdx = state.masOpts.indexOf(state.mas);
+  const kvCount  = kvIdx  < 0 ? 0 : (kvIdx  + 1);
+  const masCount = masIdx < 0 ? 0 : (masIdx + 1);
+  for (let i = 0; i < 5; i++) {
+    kvSlots[i].classList.toggle('on', i < kvCount);
+    masSlots[i].classList.toggle('on', i < masCount);
+  }
+}
+
 // ============================================================================
-// Main render
+// Main render — also drives the HUD chrome based on current pose
 // ============================================================================
 function drawScene() {
-  const W = viewfinder.clientWidth, H = viewfinder.clientHeight;
+  const W = lcd.clientWidth, H = lcd.clientHeight;
   ctx.clearRect(0,0,W,H);
   let allowed = false;
 
   if (state.pose) {
     const p = state.pose;
     const l2s = buildLocalToScreen(p);
-
-    // Cassette image rides on the rectified plane; video stays unrectified
-    // (matches tablet prototype "MC2 Static" behavior).
     applyCassetteTransform(p, l2s);
 
-    // Active area quad in cassette local cm
+    // Active area outline (always)
     const half = p.half;
     const activeLocal = [{ x:-half, y:-half }, { x: half, y:-half }, { x: half, y: half }, { x:-half, y: half }];
     const activeScreen = pts2screen(activeLocal, l2s);
+    drawActiveAreaOutline(activeScreen);
 
-    // Active-area outline: solid black border with inner white border,
-    // aligned to the cassette image's WBZ box.  Two stacked strokes give
-    // the black-white-black banded look that matches the WBZ graphic.
-    drawActiveAreaOutline(activeScreen, p.inBounds);
+    // Tutorial: ghost-target ring at level objective
+    if (state.mode === MODE.TUTORIAL) drawLevelTarget(l2s);
 
     // Collimation pillow (only in bounds)
     if (p.inBounds && p.fieldHalf > 0) {
@@ -618,13 +533,7 @@ function drawScene() {
       drawCollimationPillow(fScreen, 0.025, 3, COLORS.collim);
     }
 
-    // External cross is a static SVG image at LCD center (CSS-positioned).
-    // Center cross (Union.svg) tracks the beam-landing point on the cassette
-    // plane.  Position it via CSS transform each frame so it slides off
-    // center when the emitter is off-perpendicular and "snaps" back when
-    // perpendicular - matching the IFU description.
-    // Crosshair: outer + center translate together so the outer pills
-    // follow the center "+" as the aim point slides off perpendicular.
+    // Crosshair tracks aim point
     extCrossImg.classList.remove('hidden');
     ctrCrossImg.classList.remove('hidden');
     crosshair.style.opacity = '1';
@@ -633,31 +542,29 @@ function drawScene() {
     const dy = aimScreen.y - H / 2;
     crosshair.style.transform =
       `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-    // Crosshair stays its native white-fill / black-stroke - never tinted.
 
-    // HUD readouts
+    // HUD readouts (Play mode + final tutorial level)
     const ssdCm = p.sidCm - SETTINGS.patientThicknessCm;
     ssdVal.textContent = ssdCm.toFixed(0);
     const sidOk = p.sidCm >= SETTINGS.sidMin && p.sidCm <= SETTINGS.sidMax;
     const ssdOk = ssdCm >= SETTINGS.ssdMin;
-    // SSD pill background swaps green / red / black based on SSD lockout
-    // state.  Value text stays white per design.
     ssdVal.style.color = '#fff';
     ssdBg.src = ssdOk ? 'assets/ssd-bg-green.svg' : 'assets/ssd-bg-red.svg';
     updateSidGauge(p.sidCm, sidOk);
 
-    // Interlock priority
+    // Interlock priority (Play only — tutorial uses its own prompt)
     let warning = null;
-    if (!p.inBounds) warning = 'OUT OF BOUNDS - ALIGN BEAM';
-    else if (p.sidCm > SETTINGS.sidMax) warning = 'TOO FAR FROM CASSETTE';
-    else if (p.sidCm < SETTINGS.sidMin) warning = 'TOO CLOSE TO CASSETTE';
-    else if (ssdCm < SETTINGS.ssdMin) warning = 'TOO CLOSE TO ANATOMY';
-    else if (state.meanLuma > 220) warning = 'HARSH LIGHTING';
+    if (state.mode === MODE.PLAY) {
+      if (!p.inBounds) warning = 'OUT OF BOUNDS — ALIGN BEAM';
+      else if (p.sidCm > SETTINGS.sidMax) warning = 'TOO FAR FROM CASSETTE';
+      else if (p.sidCm < SETTINGS.sidMin) warning = 'TOO CLOSE TO CASSETTE';
+      else if (ssdCm < SETTINGS.ssdMin) warning = 'TOO CLOSE TO ANATOMY';
+      else if (state.meanLuma > 220) warning = 'HARSH LIGHTING';
+    }
     if (warning) { interlock.textContent = warning; interlock.classList.remove('hidden'); }
     else { interlock.classList.add('hidden'); }
 
     allowed = p.inBounds && sidOk && ssdOk;
-    // Mode shield green when capture is allowed, red otherwise.
     modeShield.src = allowed ? 'assets/mode-shield-green.svg'
                              : 'assets/mode-shield-red.svg';
     badgeDetect.classList.add('hidden');
@@ -669,41 +576,263 @@ function drawScene() {
     modeShield.src = 'assets/mode-shield-red.svg';
     crosshair.style.opacity = '0.45';
     updateSidGauge(NaN, false);
-    // No QR: dim external cross, hide center cross
     extCrossImg.classList.remove('hidden');
     extCrossImg.style.opacity = '0.45';
     ctrCrossImg.classList.add('hidden');
     const lostFor = performance.now() - state.lastDetectT;
-    if (lostFor > 1200) {
-      interlock.textContent = state.meanLuma > 220 ? 'HARSH LIGHTING - CASSETTE NOT VISIBLE'
+    if (lostFor > 1200 && state.mode === MODE.PLAY) {
+      interlock.textContent = state.meanLuma > 220 ? 'HARSH LIGHTING — CASSETTE NOT VISIBLE'
         : state.meanLuma < 25 ? 'EMITTER FRONT FACE COVERED'
         : 'CASSETTE NOT DETECTED';
       interlock.classList.remove('hidden');
     } else { interlock.classList.add('hidden'); }
-    badgeDetect.classList.remove('hidden');
+    badgeDetect.classList.toggle('hidden', state.mode === MODE.TUTORIAL);
   }
 
-  // Color border around the WHOLE viewfinder (outside all the UI chrome) -
-  // green when capture is allowed, red when not, amber while still searching.
-  // Implemented as a CSS class on #viewfinder so the box-shadow renders
-  // outside every overlay element.
-  const vf = document.getElementById('viewfinder');
-  vf.classList.toggle('armed', allowed);
-  vf.classList.toggle('blocked', !!state.pose && !allowed);
-  vf.classList.toggle('searching', !state.pose);
-
-  triggerBtn.classList.toggle('armed', allowed);
-  if (allowed && !state.prevAllowed && navigator.vibrate) {
-    try { navigator.vibrate(35); } catch(_) {}
+  // Border color: tutorial uses its own logic, play uses interlocks
+  if (state.mode === MODE.PLAY) {
+    viewfinderEl.classList.toggle('armed',     allowed);
+    viewfinderEl.classList.toggle('blocked',   !!state.pose && !allowed);
+    viewfinderEl.classList.toggle('searching', !state.pose);
+    triggerBtn.classList.toggle('armed', allowed);
+    if (allowed && !state.prevAllowed) MC2Audio.lock();
+    state.prevAllowed = allowed;
   }
-  state.prevAllowed = allowed;
+}
+
+// ============================================================================
+// Tutorial state machine
+// ============================================================================
+function startTutorial() {
+  state.mode = MODE.TUTORIAL;
+  state.levelIdx = 0;
+  state.holdMs = 0;
+  state.driftCount = 0;
+  state.paused = false;
+  state.levelStartT = performance.now();
+  setLevelUI();
+  enterApp();
+}
+
+function startPlay() {
+  state.mode = MODE.PLAY;
+  // Show full HUD
+  viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid');
+  // Reset prompts
+  promptStrip.classList.add('hidden');
+  promptStep.textContent = '';
+  promptText.textContent = '';
+  promptHint.textContent = '';
+  levelPill.textContent  = 'PLAY';
+  skipBtn.classList.add('hidden');
+  triggerBtn.classList.remove('hidden');
+  // Hide tutorial-only UI
+  tutTarget.classList.add('hidden');
+  holdMeter.style.display = 'none';
+  liveReadouts.style.display = 'flex';
+  enterApp();
+}
+
+function setLevelUI() {
+  const lvl = MC2_LEVELS[state.levelIdx];
+  promptStrip.classList.remove('hidden');
+  promptStep.textContent = lvl.step;
+  promptText.textContent = lvl.title;
+  promptHint.textContent = lvl.hint;
+  levelPill.textContent  = lvl.step.replace(/\s+/g,' ');
+
+  // Layer the HUD chrome
+  viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid');
+  if (lvl.layer !== 'full') viewfinderEl.classList.add('layer-' + lvl.layer);
+
+  // Tutorial target visibility
+  if (lvl.id === 'aim' || lvl.id === 'center') tutTarget.classList.remove('hidden');
+  else                                          tutTarget.classList.add('hidden');
+
+  // Hold meter + readouts
+  holdMeter.style.display = 'block';
+  liveReadouts.style.display = 'flex';
+  holdLabel.textContent = lvl.passText;
+  holdFill.style.width = '0%';
+  holdFill.classList.remove('warn','fail');
+
+  // EXPOSE only on the final level
+  triggerBtn.classList.toggle('hidden', !lvl.showExpose);
+  triggerBtn.classList.remove('armed');
+  skipBtn.classList.remove('hidden');
+
+  state.holdMs = 0;
+  state.driftCount = 0;
+  state.levelStartT = performance.now();
+}
+
+function tickTutorial(dtMs) {
+  if (state.paused) return;
+  const lvl = MC2_LEVELS[state.levelIdx];
+  if (!lvl) return;
+
+  const result = lvl.check(state.pose);
+  const wasInSpec = state.holdMs > 0;
+
+  // Update hold timer
+  if (result.pass) {
+    state.holdMs += dtMs;
+    holdFill.classList.remove('warn','fail');
+    holdLabel.textContent = lvl.reachText;
+    MC2Audio.tickHold(state.holdMs / lvl.holdMs);
+  } else {
+    if (wasInSpec && state.holdMs > 200) {
+      state.driftCount++;
+      MC2Audio.error();
+    }
+    state.holdMs = 0;
+    holdLabel.textContent = MC2_REASON_TEXT[result.reason] || lvl.passText;
+    if (result.reason === 'no-cassette') holdFill.classList.add('fail');
+    else holdFill.classList.add('warn');
+  }
+
+  const pct = Math.min(100, (state.holdMs / lvl.holdMs) * 100);
+  holdFill.style.width = pct.toFixed(1) + '%';
+
+  // Live readouts
+  renderReadouts(lvl.readouts, state.pose, result);
+
+  // Level-5 special: the EXPOSE button is the pass action, not auto-hold.
+  // Other levels: pass automatically once hold is reached.
+  if (lvl.showExpose) {
+    triggerBtn.classList.toggle('armed', !!result.pass);
+  } else if (state.holdMs >= lvl.holdMs) {
+    completeLevel();
+  }
+
+  // Border feedback: green when in spec, amber when searching, red when off
+  viewfinderEl.classList.remove('armed','blocked','searching');
+  if (!state.pose)        viewfinderEl.classList.add('searching');
+  else if (result.pass)   viewfinderEl.classList.add('armed');
+  else                    viewfinderEl.classList.add('blocked');
+
+  // Tutorial target ring: pulse → locked when pass
+  if (lvl.id === 'aim' || lvl.id === 'center') {
+    tutTarget.classList.toggle('locked', !!result.pass);
+  }
+}
+
+function completeLevel() {
+  state.paused = true;
+  const lvl = MC2_LEVELS[state.levelIdx];
+  // Star rating: 3 stars = 0 drifts, 2 stars = 1-2 drifts, 1 star = 3+ drifts
+  const stars =
+    state.driftCount === 0 ? 3 :
+    state.driftCount <= 2  ? 2 : 1;
+  const prev = state.stars[lvl.id] || 0;
+  if (stars > prev) state.stars[lvl.id] = stars;
+  saveStars();
+
+  lcStarsEl.textContent = '★'.repeat(stars) + '☆'.repeat(3-stars);
+  lcSubEl.textContent = stars === 3
+    ? 'Perfect hold — no drift!'
+    : stars === 2 ? 'Nicely done. Try for 3 stars next time.'
+    : 'Got it. Keep practicing!';
+  lcOverlay.classList.remove('hidden');
+  MC2Audio.complete();
+
+  setTimeout(() => {
+    lcOverlay.classList.add('hidden');
+    state.paused = false;
+    if (state.levelIdx < MC2_LEVELS.length - 1) {
+      state.levelIdx++;
+      setLevelUI();
+    } else {
+      // Finished tutorial
+      finishTutorial();
+    }
+  }, 2000);
+}
+
+function finishTutorial() {
+  // Show start screen with updated stars
+  showStartScreen();
+}
+
+function skipLevel() {
+  if (state.paused) return;
+  if (state.mode !== MODE.TUTORIAL) return;
+  if (state.levelIdx < MC2_LEVELS.length - 1) {
+    state.levelIdx++;
+    setLevelUI();
+  } else {
+    finishTutorial();
+  }
+}
+
+// ============================================================================
+// Live readouts
+// ============================================================================
+function renderReadouts(types, pose, result) {
+  if (!types || !types.length) { liveReadouts.innerHTML = ''; return; }
+  const items = [];
+  const lvl = MC2_LEVELS[state.levelIdx];
+
+  for (const t of types) {
+    if (t === 'aim') {
+      const r = pose ? Math.hypot(pose.aimLocal.x, pose.aimLocal.y) : null;
+      const ok = r != null && r <= MC2_TUNING.aimRadiusCm;
+      items.push(readoutEl('AIM',  r != null ? `${r.toFixed(1)} cm` : '—', r == null ? 'bad' : ok ? 'ok' : 'warn'));
+    } else if (t === 'offset') {
+      const r = pose ? Math.hypot(pose.aimLocal.x, pose.aimLocal.y) : null;
+      const ok = r != null && r <= MC2_TUNING.centerRadiusCm;
+      items.push(readoutEl('OFF',  r != null ? `${r.toFixed(1)} cm` : '—', r == null ? 'bad' : ok ? 'ok' : 'warn'));
+    } else if (t === 'tilt') {
+      const v = pose ? pose.tiltDeg : null;
+      const ok = v != null && v <= MC2_TUNING.perpTiltDeg;
+      items.push(readoutEl('TILT', v != null ? `${v.toFixed(1)}°` : '—', v == null ? 'bad' : ok ? 'ok' : 'warn'));
+    } else if (t === 'sid') {
+      const v = pose ? pose.sidCm : null;
+      const err = v != null ? Math.abs(v - MC2_TUNING.sidTargetCm) : null;
+      const ok = err != null && err <= MC2_TUNING.sidToleranceCm;
+      items.push(readoutEl('SID', v != null ? `${v.toFixed(0)} cm` : '—', v == null ? 'bad' : ok ? 'ok' : 'warn'));
+    } else if (t === 'ssd') {
+      const v = pose ? (pose.sidCm - MC2_TUNING.patientThicknessCm) : null;
+      const ok = v != null && v >= MC2_TUNING.ssdMinCm;
+      items.push(readoutEl('SSD', v != null ? `${v.toFixed(0)} cm` : '—', v == null ? 'bad' : ok ? 'ok' : 'warn'));
+    }
+  }
+  liveReadouts.innerHTML = items.join('');
+}
+
+function readoutEl(label, val, cls) {
+  return `<div class="readout ${cls}"><span class="lbl">${label}</span>${val}</div>`;
+}
+
+// ============================================================================
+// Stars persistence
+// ============================================================================
+function loadStars() {
+  try { return JSON.parse(localStorage.getItem('mc2v2-stars')) || {}; }
+  catch(_) { return {}; }
+}
+function saveStars() {
+  try { localStorage.setItem('mc2v2-stars', JSON.stringify(state.stars)); } catch(_) {}
+}
+function renderTileStars() {
+  let total = 0, possible = 3 * MC2_LEVELS.length;
+  for (const lvl of MC2_LEVELS) total += (state.stars[lvl.id] || 0);
+  if (total === 0) {
+    tileStars.textContent = '';
+  } else {
+    tileStars.textContent = `★ ${total} / ${possible}`;
+  }
 }
 
 // ============================================================================
 // Main loop
 // ============================================================================
-function loop() {
+let lastFrameT = 0;
+function loop(t) {
   if (!state.running) return;
+  const dt = lastFrameT ? (t - lastFrameT) : 16;
+  lastFrameT = t;
+
   const qr = detectQR();
   const now = performance.now();
   if (qr) {
@@ -715,49 +844,113 @@ function loop() {
     cornerFilters = makeCornerFilters();
   }
   drawScene();
+
+  if (state.mode === MODE.TUTORIAL) tickTutorial(dt);
+
   requestAnimationFrame(loop);
 }
 
 // ============================================================================
-// Controls (auto-only collimator; no A/M toggle)
+// Routing / boot
 // ============================================================================
-function bindControls() {
-  // Tap the whole control zone to cycle that setting.  No +/- buttons.
-  document.querySelectorAll('[data-act]').forEach(el => {
-    el.style.pointerEvents = 'auto';
-    el.addEventListener('click', e => {
-      e.stopPropagation();
-      const act = e.currentTarget.dataset.act;
-      if (act === 'kv') {
-        state.kv = stepArr(state.kvOpts, state.kv, 1);
-        kvValEl.textContent = state.kv;
-        updateKvMasFills();
-      } else if (act === 'mas') {
-        state.mas = stepArr(state.masOpts, state.mas, 1);
-        masValEl.textContent = state.mas;
-        updateKvMasFills();
-      } else if (act === 'mode') {
-        state.modeIdx = (state.modeIdx + 1) % state.modes.length;
-        modeValEl.textContent = state.modes[state.modeIdx];
-      }
-    });
-  });
-  // Initial fill state for kV / mAs slots
-  updateKvMasFills();
-  triggerBtn.addEventListener('click', () => {
-    if (!triggerBtn.classList.contains('armed')) {
-      if (navigator.vibrate) try { navigator.vibrate([20,40,20]); } catch(_) {}
-      return;
-    }
-    if (state.capturing) return;
-    state.capturing = true;
-    if (navigator.vibrate) try { navigator.vibrate(80); } catch(_) {}
-    flash.classList.add('on');
-    setTimeout(()=>{ flash.classList.remove('on'); state.capturing=false; }, 220);
+function enterApp() {
+  startScreen.classList.add('hidden');
+  appShell.classList.remove('hidden');
+  // Ensure layout settles before we size canvas
+  requestAnimationFrame(() => {
+    resizeCanvas();
+    if (!state.running) startCamera();
   });
 }
-// Cycle through the array wrap-around: stepping past the max returns the min.
-// (Tap-to-cycle UI semantics - you can't get stuck at the top.)
+
+function showStartScreen() {
+  state.mode = MODE.NONE;
+  stopCamera();
+  appShell.classList.add('hidden');
+  startScreen.classList.remove('hidden');
+  renderTileStars();
+  // Reset chrome
+  viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid','armed','blocked','searching');
+  promptStrip.classList.add('hidden');
+  tutTarget.classList.add('hidden');
+  lcOverlay.classList.add('hidden');
+}
+
+routeTutorial.addEventListener('click', () => {
+  MC2Audio.unlock();
+  startTutorial();
+});
+routePlay.addEventListener('click', () => {
+  MC2Audio.unlock();
+  startPlay();
+});
+backBtn.addEventListener('click', () => {
+  showStartScreen();
+});
+muteBtn.addEventListener('click', () => {
+  const m = !MC2Audio.isMuted();
+  MC2Audio.setMuted(m);
+  muteBtn.textContent = m ? '🔇' : '🔊';
+});
+skipBtn.addEventListener('click', skipLevel);
+
+// Play-mode HUD controls (kV / mAs / mode tap-zones)
+document.querySelectorAll('[data-act]').forEach(el => {
+  el.addEventListener('click', e => {
+    if (state.mode !== MODE.PLAY) return;
+    e.stopPropagation();
+    const act = e.currentTarget.dataset.act;
+    if (act === 'kv') {
+      state.kv = stepArr(state.kvOpts, state.kv, 1);
+      kvValEl.textContent = state.kv;
+      updateKvMasFills();
+    } else if (act === 'mas') {
+      state.mas = stepArr(state.masOpts, state.mas, 1);
+      masValEl.textContent = state.mas;
+      updateKvMasFills();
+    } else if (act === 'mode') {
+      state.modeIdx = (state.modeIdx + 1) % state.modes.length;
+      modeValEl.textContent = state.modes[state.modeIdx];
+    }
+  });
+});
+updateKvMasFills();
+
+triggerBtn.addEventListener('click', () => {
+  // In tutorial, EXPOSE is only meaningful on level 5
+  if (state.mode === MODE.TUTORIAL) {
+    const lvl = MC2_LEVELS[state.levelIdx];
+    if (!lvl || !lvl.showExpose) return;
+    if (!triggerBtn.classList.contains('armed') && !triggerBtnArmedTutorial(lvl)) {
+      MC2Audio.error();
+      return;
+    }
+    fireExpose();
+    return;
+  }
+  if (state.mode === MODE.PLAY) {
+    if (!triggerBtn.classList.contains('armed')) { MC2Audio.error(); return; }
+    fireExpose();
+  }
+});
+
+// On level 5 the trigger should arm based on the level check, not the
+// generic interlocks that drawScene handles for play mode.
+function triggerBtnArmedTutorial(lvl) {
+  if (!lvl || !lvl.showExpose) return false;
+  const r = lvl.check(state.pose);
+  triggerBtn.classList.toggle('armed', !!r.pass);
+  return !!r.pass;
+}
+
+function fireExpose() {
+  if (state.capturing) return;
+  state.capturing = true;
+  MC2Audio.expose();
+  flash.classList.add('on');
+  setTimeout(()=>{ flash.classList.remove('on'); state.capturing=false; }, 220);
+}
+
 function stepArr(arr, val, dir){
   const i = arr.indexOf(val);
   const n = arr.length;
@@ -765,11 +958,5 @@ function stepArr(arr, val, dir){
   return arr[j];
 }
 
-// ============================================================================
-// Boot
-// ============================================================================
-startBtn.addEventListener('click', async () => {
-  startScreen.classList.add('hidden');
-  await startCamera();
-});
-bindControls();
+// Boot: start at the start screen
+showStartScreen();
