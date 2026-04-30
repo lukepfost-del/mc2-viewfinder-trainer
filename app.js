@@ -1,5 +1,27 @@
 'use strict';
 
+// Surface any uncaught script error visibly — iOS Safari has no JS console
+// without dev-tools, so silent errors are invisible.  This banner sits above
+// the start screen so a real error stops being mysterious.
+window.addEventListener('error', function (e) {
+  try {
+    let bar = document.getElementById('mc2-error-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'mc2-error-bar';
+      bar.style.cssText =
+        'position:fixed;left:0;right:0;top:0;z-index:9999;' +
+        'background:#ff4757;color:#fff;padding:8px 12px;' +
+        'font:600 12px/1.4 -apple-system,system-ui,sans-serif;' +
+        'white-space:pre-wrap;max-height:40vh;overflow:auto;';
+      document.body && document.body.appendChild(bar);
+    }
+    const msg = (e && e.message) || String(e);
+    const src = e && (e.filename || '') + (e.lineno ? ':' + e.lineno : '');
+    bar.textContent = 'JS error: ' + msg + (src ? '\n' + src : '');
+  } catch (_) {}
+});
+
 // =============================================================================
 // MC2 Viewfinder Trainer 2.0
 //
@@ -1020,7 +1042,6 @@ triggerBtn.addEventListener('click', function () {
     return;
   }
   if (state.mode === MODE.PLAY) {
-    if (!triggerBtn.classList.contains('armed')) { MC2Audio.failPress(); return; }
     if (state.capturing) return;
     state.capturing = true;
     MC2Audio.expose();
@@ -1038,23 +1059,24 @@ function stepArr(arr, val, dir) {
   return arr[j];
 }
 
-// Camera profile picker (start screen)
+// Camera profile picker (start screen).
+// Options are declared statically in index.html so they're visible even if
+// this script fails to run.  Here we only sync the saved selection and wire
+// up the change handler.
 if (camProfileSel) {
-  for (const p of MC2_CAMERA_PROFILES) {
-    const opt = document.createElement('option');
-    opt.value = p.id;
-    opt.textContent = p.label;
-    if (p.id === state.cameraProfileId) opt.selected = true;
-    camProfileSel.appendChild(opt);
+  if (camProfileSel.options.length === 0 && Array.isArray(MC2_CAMERA_PROFILES)) {
+    for (const p of MC2_CAMERA_PROFILES) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.label;
+      camProfileSel.appendChild(opt);
+    }
   }
+  try { camProfileSel.value = state.cameraProfileId; } catch (_) {}
   camProfileSel.addEventListener('change', function () {
     setCameraProfile(camProfileSel.value);
   });
 }
 
-// Apply chosen profile to focal length BEFORE first frame is processed
 applyCameraProfile();
-
-// Boot: start at the start screen
 showStartScreen();
-);

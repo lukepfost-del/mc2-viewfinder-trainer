@@ -34,7 +34,12 @@
 
     <div class="cam-profile-block">
       <label for="camera-profile">Camera profile</label>
-      <select id="camera-profile"></select>
+      <select id="camera-profile">
+        <option value="default">Default phone (~75&deg; FOV)</option>
+        <option value="wide">Wide phone (~85&deg; FOV)</option>
+        <option value="ultrawide">Ultra-wide (~110&deg; FOV)</option>
+        <option value="tele">Telephoto (~50&deg; FOV)</option>
+      </select>
       <p class="cam-profile-hint">
         Phone cameras have different fields of view. If SID readings feel
         consistently off, switch profiles. Default works for most main cameras.
