@@ -22,15 +22,13 @@ const cassetteImg = document.getElementById('cassette-img');
 const overlay     = document.getElementById('overlay');
 const flash       = document.getElementById('flash');
 const ctx         = overlay.getContext('2d');
-const ssdVal      = document.getElementById('ssd-val');
-const pillSSD     = document.getElementById('pill-ssd');
+const ssdVal      = document.getElementById('ssd-value');
 const sidReadout  = document.getElementById('sid-readout');
 const interlock   = document.getElementById('interlock');
 const badgeDetect = document.getElementById('badge-detect');
-const kvValEl     = document.getElementById('kv-val');
-const masValEl    = document.getElementById('mas-val');
-const modeValEl   = document.getElementById('mode-val');
-const ctrlMode    = document.getElementById('ctrl-mode');
+const kvValEl     = document.getElementById('kv-value');
+const masValEl    = document.getElementById('mas-value');
+const modeValEl   = document.getElementById('mode-value');
 const triggerBtn  = document.getElementById('trigger');
 const extCrossImg = document.getElementById('external-cross');
 const ctrCrossImg = document.getElementById('center-cross');
@@ -608,8 +606,10 @@ function drawScene() {
     ssdVal.textContent = ssdCm.toFixed(0);
     const sidOk = p.sidCm >= SETTINGS.sidMin && p.sidCm <= SETTINGS.sidMax;
     const ssdOk = ssdCm >= SETTINGS.ssdMin;
-    pillSSD.classList.toggle('good', ssdOk);
-    pillSSD.classList.toggle('bad', !ssdOk);
+    // SSD pill background is in viewfinder-base.svg.  Recolor the value
+    // text only - dark green-pill text when OK, white when bad (and we
+    // overlay a red tint via the interlock if SSD is critical).
+    ssdVal.style.color = ssdOk ? '#042312' : '#fff';
     updateSidGauge(p.sidCm, sidOk);
 
     // Interlock priority
@@ -627,7 +627,7 @@ function drawScene() {
   } else {
     clearTransforms();
     ssdVal.textContent = '--';
-    pillSSD.classList.remove('good','bad');
+    ssdVal.style.color = '#042312';
     updateSidGauge(NaN, false);
     // No QR: dim external cross, hide center cross
     extCrossImg.classList.remove('hidden');

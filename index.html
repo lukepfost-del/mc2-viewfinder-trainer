@@ -6,15 +6,12 @@
 <meta name="theme-color" content="#000000">
 <title>MC2 Viewfinder Trainer</title>
 <style>
-  /* All HUD positions are in % of the 720-unit Official Viewfinder reference. */
+  /* All HUD positions are in % of the 720-unit Viewfinder reference. */
   :root {
     --green-pill: #3DB06B;
     --orange: #EE6C4D;
     --collim: #077B51;
     --red: #ff4757;
-    --bezel: #EE6C4D;
-    --panel: #000;
-    --panel-soft: rgba(0,0,0,0.85);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -36,7 +33,7 @@
   #start-screen .btn { margin-top: 18px; background: var(--green-pill); color: #04130a; font-weight: 700; border: 0; border-radius: 12px; padding: 14px 22px; font-size: 15px; }
   #start-screen .small { margin-top: 14px; font-size: 11px; color: #9ca3af; max-width: 380px; }
 
-  /* ===== App layout - viewfinder centered vertically with OXOS logo above ===== */
+  /* App layout - viewfinder centered with logo above + EXPOSE below */
   #app {
     position: fixed; inset: 0;
     background: #000;
@@ -47,41 +44,50 @@
     gap: 14px;
     padding: 16px;
   }
+  #logo { width: 50%; max-width: 220px; height: auto; flex-shrink: 0; }
 
-  #logo {
-    /* OXOS wordmark - inline SVG below */
-    width: 50%;
-    max-width: 220px;
-    height: auto;
-    flex-shrink: 0;
-  }
-
-  /* Viewfinder is the FULL square of the phone width (capped by available
-     vertical room).  The orange device bezel wraps the LCD. */
+  /* Square viewfinder.  No bezel CSS - the orange bezel is part of the
+     base SVG (Viewfinder black.svg). */
   #viewfinder {
     position: relative;
     width: 100%;
     aspect-ratio: 1 / 1;
     max-height: calc(100vh - 220px);
     max-width: calc(100vh - 220px);
-    background: var(--bezel);
     overflow: hidden;
-    border-radius: 14px;
+    background: #000;
   }
+
+  /* Base layer - ALL static HUD chrome from Viewfinder black.svg.
+     Camera, cassette, crosshair, and dynamic value text overlay on top. */
+  #vf-base {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  /* Camera and cassette layers - underneath the SVG chrome but above the
+     LCD black background.  We give the SVG a transparent center via its
+     own design so the camera shows through. */
   #lcd {
     position: absolute;
+    /* The base SVG has an 8px orange bezel; LCD content sits inside that
+       at 1.11% inset.  Camera area is the WHOLE inner LCD - HUD overlays
+       in the SVG occlude the corners only. */
     left: 1.11%; top: 1.11%; right: 1.11%; bottom: 1.11%;
     background: #000;
     overflow: hidden;
-    border-radius: 8px;
+    z-index: 1;
   }
-
-  /* Camera fills the LCD - HUD elements overlay on top */
   #video {
     position: absolute;
     inset: 0; width: 100%; height: 100%;
     object-fit: cover;
     background: #000;
+    z-index: 1;
   }
   #cassette-img {
     position: absolute;
@@ -92,14 +98,15 @@
     pointer-events: none;
     opacity: 0;
     transition: opacity 200ms;
+    z-index: 2;
   }
   #cassette-img.show { opacity: 1; }
-  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #overlay {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 3;
+  }
 
-  /* Crosshair SVG images.  Sized as % of LCD - External cross.svg is 184 in
-     the 720 viewfinder reference (25.56% width), Union (center cross) is
-     34 in 720 (4.72% width).  External stays fixed at the LCD center; the
-     center cross is positioned each frame to follow the aim-point. */
+  /* Crosshair SVGs sit ABOVE the base SVG (z-index: 7). */
   #external-cross, #center-cross {
     position: absolute;
     pointer-events: none;
@@ -109,113 +116,63 @@
   }
   #external-cross {
     left: 50%; top: 50%;
-    width: 25.56%;
-    aspect-ratio: 1 / 1;
+    width: 25.56%; aspect-ratio: 1 / 1;
     transform: translate(-50%, -50%);
   }
   #center-cross {
     left: 50%; top: 50%;
-    width: 4.72%;
-    aspect-ratio: 1 / 1;
-    /* JS rewrites this transform each frame to track aim-on-cassette. */
+    width: 4.72%; aspect-ratio: 1 / 1;
     transform: translate(-50%, -50%);
   }
   #external-cross.hidden, #center-cross.hidden { display: none; }
 
-  /* SSD pill (green) - top-right */
-  #pill-ssd {
+  /* Dynamic value text overlays.  All positioned in % of viewfinder, sitting
+     above the base SVG (z-index: 6) so they're visible on top of the chrome. */
+  .value-overlay {
     position: absolute;
-    right: 0; top: 0;
-    height: 8%;
-    min-width: 22%;
-    padding: 0 12px;
-    background: var(--green-pill);
+    color: #fff;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    z-index: 6;
+    text-align: center;
+  }
+  /* SSD value - inside the green pill at top-right (562, 0)..(720, 52) */
+  #ssd-value {
+    right: 3%; top: 1.5%;
     color: #042312;
-    border-bottom-left-radius: 13px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 800;
-    font-size: clamp(13px, 3vw, 18px);
-    letter-spacing: 0.5px;
-    z-index: 4;
+    font-size: clamp(14px, 3vw, 22px);
+    line-height: 7%;
+    height: 7.22%;
+    display: flex; align-items: center;
+    width: 6%;
   }
-  #pill-ssd.bad { background: var(--red); color: #fff; }
-  #pill-ssd .sep { width: 1.5px; height: 60%; background: rgba(255,255,255,0.7); }
-
-  /* Battery panel - top-left */
-  #pill-battery {
-    position: absolute;
-    left: 0; top: 0;
-    height: 6.5%;
-    padding: 0 12px 0 10px;
-    background: var(--panel);
-    border-bottom-right-radius: 13px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: clamp(11px, 2.4vw, 14px);
-    color: #fff;
-    z-index: 4;
+  /* kV value - inside kV trapezoid (0, 641)..(300, 720+), sits above the gray pills */
+  #kv-value {
+    left: 0;
+    bottom: 4%;
+    width: 41.67%;
+    text-align: center;
+    font-size: clamp(20px, 4.5vw, 30px);
   }
-  #pill-battery .icon {
-    display: inline-block;
-    width: 28px;
-    height: 14px;
-    border: 1.5px solid #fff;
-    border-radius: 2px;
-    position: relative;
-    box-sizing: border-box;
+  /* mAs value - inside mAs trapezoid */
+  #mas-value {
+    right: 0;
+    bottom: 4%;
+    width: 41.53%;
+    text-align: center;
+    font-size: clamp(18px, 4vw, 28px);
   }
-  #pill-battery .icon::before {
-    content: '';
-    position: absolute;
-    inset: 1.5px;
-    background: var(--green-pill);
-    border-radius: 1px;
+  /* Mode value - inside the orange shield */
+  #mode-value {
+    left: 37.78%;
+    bottom: 1.5%;
+    width: 24.44%;
+    text-align: center;
+    color: #1a0a00;
+    font-size: clamp(16px, 3.6vw, 24px);
   }
-  #pill-battery .icon::after {
-    content: '';
-    position: absolute;
-    right: -3px; top: 30%;
-    width: 2px; height: 40%;
-    background: #fff;
-  }
-
-  /* SID label (right side, below SSD pill) */
-  #sid-label {
-    position: absolute;
-    right: 1.11%; top: 11%;
-    width: 9%; height: 6.4%;
-    background: var(--panel);
-    border-radius: 13px 0 0 13px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: clamp(11px, 2.4vw, 14px);
-    font-weight: 800;
-    color: #fff;
-    letter-spacing: 0.5px;
-    z-index: 4;
-  }
-
-  /* Vertical SID bar */
-  #sid-bar-track {
-    position: absolute;
-    left: 92.78%; top: 21.53%;
-    width: 1.67%; height: 62.5%;
-    background: rgba(0,0,0,0.4);
-    border-radius: 6px;
-    z-index: 3;
-  }
-  #sid-bar-active {
-    position: absolute;
-    left: 92.78%; top: 31.94%;
-    width: 1.67%; height: 41.67%;
-    background: rgba(0,0,0,0.85);
-    border-radius: 6px;
-    z-index: 3;
-  }
+  /* SID floating readout pill (green) - the only floating element on the SID bar */
   #sid-readout {
     position: absolute;
     left: 88.61%;
@@ -229,75 +186,24 @@
     align-items: center;
     justify-content: center;
     transition: top 80ms ease-out, background 200ms;
-    z-index: 5;
+    z-index: 8;
   }
   #sid-readout.bad { background: var(--red); color: #fff; }
 
-  /* Heat fuel bar */
-  #heat-bar-track, #heat-bar-fill {
-    position: absolute;
-    left: 36.67%; top: 85.28%;
-    height: 1.39%;
-    border-radius: 999px;
-    z-index: 3;
-  }
-  #heat-bar-track { width: 26.67%; background: rgba(11,11,11,0.8); }
-  #heat-bar-fill  { width: 21%;    background: #B84646; }
-
-  /* Bottom controls - tap whole control to cycle (no +/- buttons) */
-  .ctrl-zone {
+  /* Tap targets for kV / Mode / mAs - invisible, just trigger cycles */
+  .tap-zone {
     position: absolute;
     bottom: 0;
     height: 11%;
-    background: var(--panel-soft);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
+    background: transparent;
+    pointer-events: auto;
+    z-index: 9;
     cursor: pointer;
-    z-index: 4;
   }
-  #ctrl-kv {
-    left: 0;
-    width: 41.67%;
-    border-top-right-radius: 60px;
-    align-items: flex-start;
-    padding-left: 7%;
-  }
-  #ctrl-mas {
-    right: 0;
-    width: 41.53%;
-    border-top-left-radius: 60px;
-    align-items: flex-end;
-    padding-right: 7%;
-  }
-  #ctrl-mode {
-    left: 37.78%;
-    width: 24.44%;
-    height: 9.5%;
-    background: var(--orange);
-    color: #1a0a00;
-    clip-path: polygon(0 25%, 50% 0, 100% 25%, 100% 100%, 0 100%);
-    align-items: center;
-    justify-content: flex-end;
-    z-index: 6;
-    padding-bottom: 6%;
-  }
-  .ctrl-zone .label {
-    font-size: clamp(10px, 2vw, 13px);
-    letter-spacing: 1.5px;
-    opacity: 0.65;
-    text-transform: uppercase;
-  }
-  #ctrl-mode .label { opacity: 0.85; }
-  .ctrl-zone .val {
-    font-size: clamp(16px, 3.6vw, 24px);
-    font-weight: 800;
-    line-height: 1.05;
-  }
+  #tap-kv   { left: 0;        width: 41.67%; }
+  #tap-mode { left: 37.78%;   width: 24.44%; height: 9.5%; }
+  #tap-mas  { right: 0;       width: 41.53%; }
 
-  /* Crosshair / camera content overlays */
   #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 80ms ease-out; z-index: 10; }
   #flash.on { opacity: 1; }
   .interlock {
@@ -327,19 +233,14 @@
   .badge-detect.hidden { display: none; }
   .badge-detect .big { font-size: 32px; margin-bottom: 6px; }
 
-  /* EXPOSE button - rounded rectangle below viewfinder */
   .trigger {
     pointer-events: auto;
-    width: 80%;
-    max-width: 360px;
-    height: 56px;
+    width: 80%; max-width: 360px; height: 56px;
     border-radius: 16px;
     background: rgba(255,71,87,0.18);
     border: 2px solid var(--red);
     color: var(--red);
-    font-size: 17px;
-    letter-spacing: 1.5px;
-    font-weight: 800;
+    font-size: 17px; letter-spacing: 1.5px; font-weight: 800;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
@@ -372,60 +273,46 @@
 </div>
 
 <div id="app">
-  <!-- OXOS wordmark (target-reticle style; replace assets/oxos-logo.svg with
-       the official graphic if you have it). -->
   <img id="logo" src="assets/oxos-logo.svg" alt="OXOS" />
 
   <div id="viewfinder">
+    <!-- Camera + cassette + canvas (z=1..3) -->
     <div id="lcd">
       <video id="video" autoplay muted playsinline webkit-playsinline></video>
       <img id="cassette-img" src="assets/cassette-full.webp" alt="" />
       <canvas id="overlay"></canvas>
-      <!-- Real Figma SVG crosshairs.  External (4 outer pill arms) is fixed
-           at viewfinder center; center cross (Union) is positioned to the
-           beam-landing-point on the cassette plane each frame. -->
-      <img id="external-cross" src="assets/external-cross.svg" alt="" />
-      <img id="center-cross"   src="assets/center-cross.svg"   alt="" />
-      <div id="flash"></div>
-
-      <div id="pill-ssd">
-        <span>SSD</span>
-        <span class="sep"></span>
-        <span id="ssd-val">--</span>
-      </div>
-
-      <div id="pill-battery">
-        <span class="icon"></span>
-        <span>100%</span>
-      </div>
-
-      <div id="sid-label">SID</div>
-      <div id="sid-bar-track"></div>
-      <div id="sid-bar-active"></div>
-      <div id="sid-readout">--</div>
-
-      <div id="heat-bar-track"></div>
-      <div id="heat-bar-fill"></div>
-
-      <div class="ctrl-zone" id="ctrl-kv" data-act="kv">
-        <div class="label">kV</div>
-        <div class="val"><span id="kv-val">60</span></div>
-      </div>
-      <div class="ctrl-zone" id="ctrl-mode" data-act="mode">
-        <div class="label">MODE</div>
-        <div class="val" id="mode-val">DDR</div>
-      </div>
-      <div class="ctrl-zone" id="ctrl-mas" data-act="mas">
-        <div class="label">mAs</div>
-        <div class="val"><span id="mas-val">0.16</span></div>
-      </div>
-
-      <div class="interlock hidden" id="interlock">&mdash; ALIGN BEAM &mdash;</div>
-      <div class="badge-detect" id="badge-detect">
-        <div class="big">&#x2316;</div>
-        <div>Aim camera at the printed QR target</div>
-      </div>
     </div>
+
+    <!-- Static HUD chrome (z=5) - all the kV/Mode/mAs trapezoids, gray
+         setting pills, battery panel, SID bar, SSD pill, orange bezel. -->
+    <img id="vf-base" src="assets/viewfinder-base.svg" alt="" />
+
+    <!-- Dynamic value overlays (z=6) - just the numbers/text -->
+    <span id="ssd-value" class="value-overlay">--</span>
+    <span id="kv-value"  class="value-overlay">60</span>
+    <span id="mas-value" class="value-overlay">0.16</span>
+    <span id="mode-value" class="value-overlay">DDR</span>
+
+    <!-- Floating SID readout pill -->
+    <div id="sid-readout">--</div>
+
+    <!-- Crosshair SVGs (z=7) -->
+    <img id="external-cross" src="assets/external-cross.svg" alt="" />
+    <img id="center-cross"   src="assets/center-cross.svg"   alt="" />
+
+    <!-- Status overlays (z=8..9) -->
+    <div class="interlock hidden" id="interlock">&mdash; ALIGN BEAM &mdash;</div>
+    <div class="badge-detect" id="badge-detect">
+      <div class="big">&#x2316;</div>
+      <div>Aim camera at the printed QR target</div>
+    </div>
+
+    <!-- Tap zones for cycling values (z=9, pointer-events:auto) -->
+    <div class="tap-zone" id="tap-kv"   data-act="kv"></div>
+    <div class="tap-zone" id="tap-mode" data-act="mode"></div>
+    <div class="tap-zone" id="tap-mas"  data-act="mas"></div>
+
+    <div id="flash"></div>
   </div>
 
   <button class="trigger" id="trigger" aria-label="Trigger">EXPOSE</button>
