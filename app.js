@@ -35,11 +35,11 @@ const triggerBtn  = document.getElementById('trigger');
 const SETTINGS = {
   qrPhysicalCm: 9.0,
   activeAreaCm: 21.35,
-  // Active area takes ~62% of the full uncropped cassette image's height/width.
-  cassetteImgActiveFrac: 0.62,
-  // The active area is centered horizontally in the image but offset vertically
-  // (cassette has a handle on top). Vertical center as fraction of image height.
-  cassetteImgActiveCy: 0.585,
+  // The "WEIGHT BEARING ZONE" box (the actual active area) spans ~40% of the
+  // full uncropped cassette image's width, centered at ~55% from top
+  // (handle offset). Measured from the rendered cassette image.
+  cassetteImgActiveFrac: 0.40,
+  cassetteImgActiveCy: 0.55,
   minFieldCmPerSid: 0.24,
   sidMin: 30, sidMax: 80,
   ssdMin: 30,
@@ -48,10 +48,12 @@ const SETTINGS = {
   oeMinCutoff: 1.2, oeBeta: 0.04, oeDerivCutoff: 1.0,
   procMaxDim: 720,
   cassetteImgPx: 720,
-  // Margin inside the viewfinder square for the active-area projected size.
-  // Active area takes this fraction of the viewfinder side.  The cassette body
-  // around it spills toward the viewfinder edges (and may clip slightly).
-  activeAreaScreenFrac: 0.78,
+  // Active area takes this fraction of the viewfinder side.  With
+  // cassetteImgActiveFrac = 0.40, the full cassette image extends to
+  // (activeAreaScreenFrac / 0.40) of the viewfinder side - i.e. ~83% of
+  // the viewfinder, which puts the cassette at roughly half the phone
+  // screen height (matches the user-spec "half overall screen height").
+  activeAreaScreenFrac: 0.33,
 };
 
 const COLORS = {
@@ -440,9 +442,11 @@ function drawCollimationPillow(quad, bowFraction, lineWidth, color) {
   ctx.closePath(); ctx.stroke(); ctx.restore();
 }
 
-// External cross: 4 pill arms with notch at center.  Crosshair fills the gap
-// when the small + at aim coincides with screen center (= perpendicular).
-function drawExternalCross(cx, cy, scale, color) {
+// External cross: 4 pill arms with notch at center.  Geometry sourced from
+// `External cross.svg` and the Official Viewfinder reference (arm width 6,
+// length 38, gap 51 in 720-unit reference).  Pass vfSide so the crosshair
+// scales with viewfinder size.
+function drawExternalCross(cx, cy, vfSide, color) {
   ctx.save();
   ctx.fillStyle = color;
   function pill(x0, y0, w, h) {
@@ -454,7 +458,9 @@ function drawExternalCross(cx, cy, scale, color) {
     ctx.arc(x0 + r, y0 + r, r, Math.PI/2, -Math.PI/2);
     ctx.closePath(); ctx.fill();
   }
-  const gap = 18 * scale, armW = 4 * scale, armL = 36 * scale;
+  const gap  = vfSide * (51 / 720);
+  const armW = Math.max(2.5, vfSide * (6 / 720));
+  const armL = vfSide * (38 / 720);
   pill(cx - armW/2, cy - gap - armL, armW, armL);
   pill(cx - armW/2, cy + gap, armW, armL);
   pill(cx - gap - armL, cy - armW/2, armL, armW);
@@ -462,16 +468,26 @@ function drawExternalCross(cx, cy, scale, color) {
   ctx.restore();
 }
 
-// Small + with outline ring at the beam landing point on the cassette.
-function drawCenterPlus(cx, cy, color) {
+// Small "+" at the beam landing point. Geometry from Official Viewfinder.svg
+// (inner plus is 6 wide x 30 long in 720-unit reference, no surrounding ring).
+function drawCenterPlus(cx, cy, vfSide, color) {
   ctx.save();
-  ctx.lineCap = 'round'; ctx.strokeStyle = color; ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - 8); ctx.lineTo(cx, cy + 8);
-  ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy);
-  ctx.stroke();
-  ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(cx, cy, 13, 0, Math.PI*2); ctx.stroke();
+  ctx.fillStyle = color;
+  function pill(x0, y0, w, h) {
+    const r = Math.min(w, h) / 2;
+    ctx.beginPath();
+    ctx.moveTo(x0 + r, y0); ctx.lineTo(x0 + w - r, y0);
+    ctx.arc(x0 + w - r, y0 + r, r, -Math.PI/2, Math.PI/2);
+    ctx.lineTo(x0 + r, y0 + h);
+    ctx.arc(x0 + r, y0 + r, r, Math.PI/2, -Math.PI/2);
+    ctx.closePath(); ctx.fill();
+  }
+  const armW = Math.max(2.5, vfSide * (6 / 720));
+  const armL = vfSide * (30 / 720);
+  // Vertical pill (top half + bottom half merged)
+  pill(cx - armW/2, cy - armL/2, armW, armL);
+  // Horizontal pill
+  pill(cx - armL/2, cy - armW/2, armL, armW);
   ctx.restore();
 }
 
@@ -547,12 +563,12 @@ function drawScene() {
     }
 
     // External cross at viewfinder center (camera optical axis)
-    drawExternalCross(W/2, H/2, 1.0, COLORS.black);
+    drawExternalCross(W/2, H/2, Math.min(W, H), COLORS.black);
     // Small + at aim point on cassette (after rectification, this lies in
     // cassette local coords).  When perpendicular, aim point projects to
     // viewfinder center, completing the cross visually.
     const aimScreen = applyH(l2s.H_l_to_s, p.aimLocal.x, p.aimLocal.y);
-    drawCenterPlus(aimScreen.x, aimScreen.y, p.inBounds ? COLORS.black : COLORS.red);
+    drawCenterPlus(aimScreen.x, aimScreen.y, Math.min(W, H), p.inBounds ? COLORS.black : COLORS.red);
 
     // HUD readouts
     const ssdCm = p.sidCm - SETTINGS.patientThicknessCm;
@@ -580,7 +596,7 @@ function drawScene() {
     ssdVal.textContent = '--';
     pillSSD.classList.remove('good','bad');
     updateSidGauge(NaN, false);
-    drawExternalCross(W/2, H/2, 1.0, 'rgba(255,255,255,0.6)');
+    drawExternalCross(W/2, H/2, Math.min(W, H), 'rgba(255,255,255,0.6)');
     const lostFor = performance.now() - state.lastDetectT;
     if (lostFor > 1200) {
       interlock.textContent = state.meanLuma > 220 ? 'HARSH LIGHTING - CASSETTE NOT VISIBLE'
