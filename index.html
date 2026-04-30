@@ -189,7 +189,8 @@
     font-size: clamp(16px, 3.6vw, 24px);
     font-weight: 800;
   }
-  /* SID floating readout - white text on black */
+  /* SID floating readout - green when SID is in 30-80 range, red otherwise,
+     black when no SID known yet. */
   #sid-readout {
     position: absolute;
     left: 89.6%;
@@ -203,7 +204,8 @@
     transition: top 80ms ease-out, background 200ms;
     z-index: 8;
   }
-  #sid-readout.bad { background: var(--red); }
+  #sid-readout.good { background: var(--green-pill); color: #042312; }
+  #sid-readout.bad  { background: var(--red);        color: #fff; }
 
   /* Crosshair group - both pieces translate together so the outer pills
      follow the center cross around as the aim point moves. */

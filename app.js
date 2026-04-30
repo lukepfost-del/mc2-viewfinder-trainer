@@ -560,14 +560,17 @@ function updateSidGauge(sidCm, ok) {
     sidReadout.style.top = '47.83%';
     sidReadout.textContent = '--';
     sidReadout.classList.remove('bad');
+    sidReadout.classList.remove('good');
     return;
   }
+  // Direction: closer (lower SID) -> lower on bar; further (higher SID) ->
+  // higher on bar.  So map SID 30 cm -> bottom of active range, 80 cm -> top.
   const t = clamp01((sidCm - 30) / (80 - 30)); // 0 at 30, 1 at 80
-  // Bar active range is 31.94%..73.61% (40% tall).  Map SID to that.
-  const topPct = 31.94 + t * (73.61 - 31.94);
-  // Center the readout pill (4.86% tall) on that y position.
+  const topPct = 73.61 - t * (73.61 - 31.94);
   sidReadout.style.top = (topPct - 4.86 / 2) + '%';
   sidReadout.textContent = sidCm.toFixed(0);
+  // Green when inside 30..80 range, red when outside.
+  sidReadout.classList.toggle('good', ok);
   sidReadout.classList.toggle('bad', !ok);
 }
 
@@ -739,9 +742,12 @@ function bindControls() {
     setTimeout(()=>{ flash.classList.remove('on'); state.capturing=false; }, 220);
   });
 }
+// Cycle through the array wrap-around: stepping past the max returns the min.
+// (Tap-to-cycle UI semantics - you can't get stuck at the top.)
 function stepArr(arr, val, dir){
   const i = arr.indexOf(val);
-  const j = Math.max(0, Math.min(arr.length-1, (i<0?0:i)+dir));
+  const n = arr.length;
+  const j = ((i < 0 ? 0 : i) + dir + n) % n;
   return arr[j];
 }
 
