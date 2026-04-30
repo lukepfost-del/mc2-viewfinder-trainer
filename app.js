@@ -120,9 +120,9 @@ async function startCamera() {
       const onMeta = () => { video.removeEventListener('loadedmetadata', onMeta); res(); };
       video.addEventListener('loadedmetadata', onMeta);
     });
-    // Pin video element to its native pixel dimensions so matrix3d math is direct.
-    video.style.width  = video.videoWidth + 'px';
-    video.style.height = video.videoHeight + 'px';
+    // Video stays full-cover inside the viewfinder; we don't rectify it
+    // (matches the tablet prototype's MC2 Static behavior - cassette image
+    // is the rectified element, the live video shows whatever the camera sees).
 
     const mm = parseFloat(calibInput.value);
     if (Number.isFinite(mm) && mm >= 10 && mm <= 200) SETTINGS.qrPhysicalCm = mm / 10;
@@ -391,7 +391,6 @@ function applyVideoTransform(p, l2s) {
 
 function clearTransforms() {
   cassetteImg.classList.remove('show');
-  video.style.transform = 'none';
 }
 
 // ============================================================================
@@ -524,8 +523,8 @@ function drawScene() {
     const p = state.pose;
     const l2s = buildLocalToScreen(p);
 
-    // Apply transforms to the live video and the cassette image
-    applyVideoTransform(p, l2s);
+    // Cassette image rides on the rectified plane; video stays unrectified
+    // (matches tablet prototype "MC2 Static" behavior).
     applyCassetteTransform(p, l2s);
 
     // Active area quad in cassette local cm
