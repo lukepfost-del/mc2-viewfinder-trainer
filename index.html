@@ -96,6 +96,32 @@
   #cassette-img.show { opacity: 1; }
   #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
+  /* Crosshair SVG images.  Sized as % of LCD - External cross.svg is 184 in
+     the 720 viewfinder reference (25.56% width), Union (center cross) is
+     34 in 720 (4.72% width).  External stays fixed at the LCD center; the
+     center cross is positioned each frame to follow the aim-point. */
+  #external-cross, #center-cross {
+    position: absolute;
+    pointer-events: none;
+    transform-origin: 50% 50%;
+    will-change: transform;
+    z-index: 7;
+  }
+  #external-cross {
+    left: 50%; top: 50%;
+    width: 25.56%;
+    aspect-ratio: 1 / 1;
+    transform: translate(-50%, -50%);
+  }
+  #center-cross {
+    left: 50%; top: 50%;
+    width: 4.72%;
+    aspect-ratio: 1 / 1;
+    /* JS rewrites this transform each frame to track aim-on-cassette. */
+    transform: translate(-50%, -50%);
+  }
+  #external-cross.hidden, #center-cross.hidden { display: none; }
+
   /* SSD pill (green) - top-right */
   #pill-ssd {
     position: absolute;
@@ -346,26 +372,20 @@
 </div>
 
 <div id="app">
-  <!-- OXOS wordmark (inline SVG, scaled with the viewfinder) -->
-  <svg id="logo" viewBox="0 0 260 56" xmlns="http://www.w3.org/2000/svg" aria-label="OXOS">
-    <!-- Stylized 'O' with cutouts top and bottom (target reticle look) -->
-    <g fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round">
-      <!-- Left O (cutouts at 0deg and 180deg = top/bottom) -->
-      <path d="M28 6 a22 22 0 0 1 22 22 M50 28 a22 22 0 0 1 -22 22 M28 50 a22 22 0 0 1 -22 -22 M6 28 a22 22 0 0 1 22 -22" />
-      <!-- X -->
-      <path d="M62 6 L98 50 M98 6 L62 50" />
-      <!-- Middle O -->
-      <path d="M132 6 a22 22 0 0 1 22 22 M154 28 a22 22 0 0 1 -22 22 M132 50 a22 22 0 0 1 -22 -22 M110 28 a22 22 0 0 1 22 -22" />
-      <!-- S -->
-      <path d="M222 14 a14 8 0 0 0 -14 -8 h-12 a8 8 0 0 0 0 16 h14 a8 8 0 0 1 0 16 h-12 a14 8 0 0 1 -14 -8" />
-    </g>
-  </svg>
+  <!-- OXOS wordmark (target-reticle style; replace assets/oxos-logo.svg with
+       the official graphic if you have it). -->
+  <img id="logo" src="assets/oxos-logo.svg" alt="OXOS" />
 
   <div id="viewfinder">
     <div id="lcd">
       <video id="video" autoplay muted playsinline webkit-playsinline></video>
       <img id="cassette-img" src="assets/cassette-full.webp" alt="" />
       <canvas id="overlay"></canvas>
+      <!-- Real Figma SVG crosshairs.  External (4 outer pill arms) is fixed
+           at viewfinder center; center cross (Union) is positioned to the
+           beam-landing-point on the cassette plane each frame. -->
+      <img id="external-cross" src="assets/external-cross.svg" alt="" />
+      <img id="center-cross"   src="assets/center-cross.svg"   alt="" />
       <div id="flash"></div>
 
       <div id="pill-ssd">

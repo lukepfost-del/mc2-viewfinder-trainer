@@ -32,6 +32,8 @@ const masValEl    = document.getElementById('mas-val');
 const modeValEl   = document.getElementById('mode-val');
 const ctrlMode    = document.getElementById('ctrl-mode');
 const triggerBtn  = document.getElementById('trigger');
+const extCrossImg = document.getElementById('external-cross');
+const ctrCrossImg = document.getElementById('center-cross');
 
 // ---- Settings ----
 const SETTINGS = {
@@ -587,13 +589,19 @@ function drawScene() {
       drawCollimationPillow(fScreen, 0.025, 3, COLORS.collim);
     }
 
-    // External cross at viewfinder center (camera optical axis)
-    drawExternalCross(W/2, H/2, Math.min(W, H), COLORS.black);
-    // Small + at aim point on cassette (after rectification, this lies in
-    // cassette local coords).  When perpendicular, aim point projects to
-    // viewfinder center, completing the cross visually.
+    // External cross is a static SVG image at LCD center (CSS-positioned).
+    // Center cross (Union.svg) tracks the beam-landing point on the cassette
+    // plane.  Position it via CSS transform each frame so it slides off
+    // center when the emitter is off-perpendicular and "snaps" back when
+    // perpendicular - matching the IFU description.
+    extCrossImg.classList.remove('hidden');
+    extCrossImg.style.opacity = '1';
+    ctrCrossImg.classList.remove('hidden');
     const aimScreen = applyH(l2s.H_l_to_s, p.aimLocal.x, p.aimLocal.y);
-    drawCenterPlus(aimScreen.x, aimScreen.y, Math.min(W, H), p.inBounds ? COLORS.black : COLORS.red);
+    const dx = aimScreen.x - W / 2;
+    const dy = aimScreen.y - H / 2;
+    ctrCrossImg.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    ctrCrossImg.style.filter = p.inBounds ? 'none' : 'invert(36%) sepia(95%) saturate(7000%) hue-rotate(340deg)';
 
     // HUD readouts
     const ssdCm = p.sidCm - SETTINGS.patientThicknessCm;
@@ -621,7 +629,10 @@ function drawScene() {
     ssdVal.textContent = '--';
     pillSSD.classList.remove('good','bad');
     updateSidGauge(NaN, false);
-    drawExternalCross(W/2, H/2, Math.min(W, H), 'rgba(255,255,255,0.6)');
+    // No QR: dim external cross, hide center cross
+    extCrossImg.classList.remove('hidden');
+    extCrossImg.style.opacity = '0.45';
+    ctrCrossImg.classList.add('hidden');
     const lostFor = performance.now() - state.lastDetectT;
     if (lostFor > 1200) {
       interlock.textContent = state.meanLuma > 220 ? 'HARSH LIGHTING - CASSETTE NOT VISIBLE'

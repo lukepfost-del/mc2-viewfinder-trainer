@@ -1,0 +1,25 @@
+<svg viewBox="0 0 520 110" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="butt">
+  <!-- Each "O" is a ring with target-reticle cutouts at 12 and 6 o'clock.
+       Center y = 55, ring radius = 42, cutout half-angle ≈ 18°.
+       Right arc: from (cx + r·sin18°, cy - r·cos18°) clockwise around to (cx + r·sin18°, cy + r·cos18°).
+       Left arc: from (cx - r·sin18°, cy - r·cos18°) anticlockwise around to (cx - r·sin18°, cy + r·cos18°). -->
+  <g transform="translate(55,55)">
+    <path d="M 13 -40 A 42 42 0 0 1 13 40" />
+    <path d="M -13 -40 A 42 42 0 0 0 -13 40" />
+  </g>
+  <!-- X -->
+  <g transform="translate(195,55)" stroke-linecap="butt">
+    <path d="M -42 -42 L 42 42" />
+    <path d="M 42 -42 L -42 42" />
+  </g>
+  <!-- O -->
+  <g transform="translate(335,55)">
+    <path d="M 13 -40 A 42 42 0 0 1 13 40" />
+    <path d="M -13 -40 A 42 42 0 0 0 -13 40" />
+  </g>
+  <!-- S - same target-reticle styling: top arc (open at top-right), middle horizontal, bottom arc (open at bottom-left) -->
+  <g transform="translate(465,55)">
+    <!-- Top right arc with cutout at top -->
+    <path d="M -42 -25 A 25 25 0 0 1 -17 -42 L 17 -42 A 25 25 0 0 1 42 -25 A 25 25 0 0 1 17 0 L -17 0 A 25 25 0 0 0 -42 25 A 25 25 0 0 0 -17 42 L 17 42 A 25 25 0 0 0 42 25" />
+  </g>
+</svg>
