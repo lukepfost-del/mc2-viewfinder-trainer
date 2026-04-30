@@ -620,11 +620,7 @@ function drawScene() {
     const dy = aimScreen.y - H / 2;
     crosshair.style.transform =
       `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-    const filter = p.inBounds
-      ? 'none'
-      : 'invert(36%) sepia(95%) saturate(7000%) hue-rotate(340deg)';
-    extCrossImg.style.filter = filter;
-    ctrCrossImg.style.filter = filter;
+    // Crosshair stays its native white-fill / black-stroke - never tinted.
 
     // HUD readouts
     const ssdCm = p.sidCm - SETTINGS.patientThicknessCm;

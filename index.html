@@ -36,18 +36,23 @@
     position: fixed; inset: 0;
     background: #000;
     display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 14px; padding: 16px;
+    align-items: center;
+    /* space-between pushes the logo to the top of available room and the
+       EXPOSE button to the bottom, with the viewfinder centered between */
+    justify-content: space-between;
+    padding: max(env(safe-area-inset-top, 0px), 24px) 16px max(env(safe-area-inset-bottom, 0px), 28px);
   }
   #logo { width: 50%; max-width: 220px; height: auto; flex-shrink: 0; }
   #viewfinder {
     position: relative;
     width: 100%;
     aspect-ratio: 1 / 1;
-    max-height: calc(100vh - 220px);
-    max-width: calc(100vh - 220px);
+    /* leave room for logo on top and a larger EXPOSE button on bottom */
+    max-height: calc(100vh - 280px);
+    max-width: calc(100vh - 280px);
     overflow: hidden;
     background: #000;
+    flex-shrink: 0;
   }
 
   /* Camera + cassette + canvas (z=1..3) */
@@ -148,25 +153,15 @@
     z-index: 7;
     text-align: center;
   }
-  /* SSD value - inside the green/red pill at top-right */
+  /* SSD value - just the number; the "SSD |" label is part of the base SVG */
   #ssd-value {
-    right: 4%;
+    right: 1.5%;
     top: 1.5%;
     height: 4.5%;
+    width: 6%;
     color: #fff;
     font-size: clamp(14px, 3vw, 22px);
-    width: 12%;
-    display: flex; align-items: center; justify-content: flex-end;
-    gap: 4px;
-  }
-  #ssd-value::before {
-    content: 'SSD';
-    color: #fff;
-    font-size: 0.75em;
-    letter-spacing: 0.5px;
-    margin-right: 4px;
-    border-right: 1px solid rgba(255,255,255,0.6);
-    padding-right: 6px;
+    display: flex; align-items: center; justify-content: center;
   }
   /* kV value - large, centered above the gray pills in left trapezoid */
   #kv-value {
@@ -226,6 +221,9 @@
     left: 50%; top: 50%;
     transform: translate(-50%, -50%);
     pointer-events: none;
+    /* always fully opaque, native SVG colors only - never tinted by JS */
+    opacity: 1;
+    filter: none !important;
   }
   #external-cross { width: 25.56vmin; max-width: 25.56vh; aspect-ratio: 1 / 1; }
   #center-cross   { width:  4.72vmin; max-width:  4.72vh; aspect-ratio: 1 / 1; }
@@ -270,16 +268,17 @@
 
   .trigger {
     pointer-events: auto;
-    width: 80%; max-width: 360px; height: 56px;
-    border-radius: 16px;
+    width: 92%; max-width: 460px; height: 84px;
+    margin-top: 18px;
+    border-radius: 22px;
     background: rgba(255,71,87,0.18);
-    border: 2px solid var(--red);
+    border: 3px solid var(--red);
     color: var(--red);
-    font-size: 17px; letter-spacing: 1.5px; font-weight: 800;
+    font-size: 22px; letter-spacing: 2px; font-weight: 800;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
-  .trigger.armed { background: rgba(41,211,106,0.18); border-color: var(--green-pill); color: var(--green-pill); }
+  .trigger.armed { background: rgba(41,211,106,0.22); border-color: var(--green-pill); color: var(--green-pill); }
   .trigger:active { transform: scale(0.98); }
 </style>
 </head>
