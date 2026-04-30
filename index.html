@@ -50,10 +50,20 @@
     /* leave room for logo on top and a larger EXPOSE button on bottom */
     max-height: calc(100vh - 280px);
     max-width: calc(100vh - 280px);
+    /* room for the outer color border (drawn via box-shadow) */
+    margin: 6px;
     overflow: hidden;
     background: #000;
     flex-shrink: 0;
+    border-radius: 4px;
+    /* Color border around the WHOLE viewfinder, outside all UI chrome.
+       JS toggles .armed (green) / .blocked (red) / .searching (amber). */
+    box-shadow: 0 0 0 5px rgba(255,179,2,0.7);
+    transition: box-shadow 200ms;
   }
+  #viewfinder.armed    { box-shadow: 0 0 0 5px var(--green-pill); }
+  #viewfinder.blocked  { box-shadow: 0 0 0 5px var(--red); }
+  #viewfinder.searching { box-shadow: 0 0 0 5px rgba(255,179,2,0.7); }
 
   /* Camera + cassette + canvas (z=1..3) */
   #lcd {
@@ -153,16 +163,37 @@
     z-index: 7;
     text-align: center;
   }
-  /* SSD value - just the number; the "SSD |" label is part of the base SVG */
+  /* SSD label + pipe + value, drawn on top of the colored ssd-bg.
+     The base SVG's SSD chrome is hidden when our colored bg overlays it,
+     so we re-render the label here.  All white. */
   #ssd-value {
-    right: 1.5%;
-    top: 1.5%;
-    height: 4.5%;
-    width: 6%;
+    right: 0;
+    top: 0;
+    height: 6.94%;
+    width: 21.94%;
     color: #fff;
-    font-size: clamp(14px, 3vw, 22px);
+    font-size: clamp(13px, 2.6vw, 18px);
+    font-weight: 800;
+    letter-spacing: 0.5px;
     display: flex; align-items: center; justify-content: center;
+    gap: 8px;
+    padding-right: 14px;
   }
+  #ssd-value::before {
+    content: 'SSD';
+    color: #fff;
+    font-size: 0.85em;
+  }
+  #ssd-value::after {
+    content: '';
+    width: 1px;
+    height: 50%;
+    background: rgba(255,255,255,0.85);
+    align-self: center;
+    order: 0;
+  }
+  /* Make the value itself appear last (right-most) */
+  #ssd-value > * { order: 0; }
   /* kV value - large, centered above the gray pills in left trapezoid */
   #kv-value {
     left: 0; bottom: 4.5%;

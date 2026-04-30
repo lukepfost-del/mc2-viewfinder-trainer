@@ -431,17 +431,18 @@ function pathQuad(quad){
 // Stroke twice on the same path - black thick first, then thinner white on
 // top - which leaves a black band on the outside, white band in the middle,
 // then black band on the inside (matches WBZ box on the cassette image).
-function drawActiveAreaOutline(quad, inBounds) {
+// Active-area outline: solid black outer + white inner, ALWAYS - never
+// changes color based on bounds (per user spec; the colored border is the
+// box-shadow outside the whole viewfinder).
+function drawActiveAreaOutline(quad, _inBounds /* unused */) {
   ctx.save();
   ctx.lineJoin = 'round';
-  // Outer black
   ctx.beginPath();
   quad.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
   ctx.closePath();
-  ctx.strokeStyle = inBounds ? '#000' : COLORS.red;
+  ctx.strokeStyle = '#000';
   ctx.lineWidth = 5;
   ctx.stroke();
-  // Inner white
   ctx.strokeStyle = '#fff';
   ctx.lineWidth = 2;
   ctx.stroke();
@@ -673,10 +674,14 @@ function drawScene() {
     badgeDetect.classList.remove('hidden');
   }
 
-  // Edge ring color
-  const ringColor = allowed ? 'rgba(41,211,106,0.95)'
-    : (state.pose ? 'rgba(255,71,87,0.7)' : 'rgba(255,179,2,0.6)');
-  drawEdgeRing(W, H, ringColor);
+  // Color border around the WHOLE viewfinder (outside all the UI chrome) -
+  // green when capture is allowed, red when not, amber while still searching.
+  // Implemented as a CSS class on #viewfinder so the box-shadow renders
+  // outside every overlay element.
+  const vf = document.getElementById('viewfinder');
+  vf.classList.toggle('armed', allowed);
+  vf.classList.toggle('blocked', !!state.pose && !allowed);
+  vf.classList.toggle('searching', !state.pose);
 
   triggerBtn.classList.toggle('armed', allowed);
   if (allowed && !state.prevAllowed && navigator.vibrate) {
