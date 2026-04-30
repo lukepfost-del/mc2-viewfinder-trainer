@@ -409,7 +409,7 @@ function pathQuad(quad){
 
 function drawCornerTicks(quad, color, len) {
   ctx.save();
-  ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineCap = 'butt';
   for (let i = 0; i < 4; i++) {
     const a = quad[i], b = quad[(i+1)%4], c2 = quad[(i+3)%4];
     const dab = norm(sub(b,a)), dac = norm(sub(c2,a));
@@ -442,13 +442,12 @@ function drawCollimationPillow(quad, bowFraction, lineWidth, color) {
   ctx.closePath(); ctx.stroke(); ctx.restore();
 }
 
-// External cross: 4 pill arms with notch at center.  Geometry sourced from
-// `External cross.svg` and the Official Viewfinder reference (arm width 6,
-// length 38, gap 51 in 720-unit reference).  Pass vfSide so the crosshair
-// scales with viewfinder size.
-function drawExternalCross(cx, cy, vfSide, color) {
+// External cross: 4 white-filled, black-outlined pill arms with a notch at
+// center.  Geometry from `External cross.svg` (arm width 6, length 38, gap
+// 51 in 720-unit reference).  White fill + black stroke matches the actual
+// SVG and stays visible against any camera background.
+function drawExternalCross(cx, cy, vfSide, _unused) {
   ctx.save();
-  ctx.fillStyle = color;
   function pill(x0, y0, w, h) {
     const r = Math.min(w, h) / 2;
     ctx.beginPath();
@@ -456,11 +455,18 @@ function drawExternalCross(cx, cy, vfSide, color) {
     ctx.arc(x0 + w - r, y0 + r, r, -Math.PI/2, Math.PI/2);
     ctx.lineTo(x0 + r, y0 + h);
     ctx.arc(x0 + r, y0 + r, r, Math.PI/2, -Math.PI/2);
-    ctx.closePath(); ctx.fill();
+    ctx.closePath();
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = Math.max(1, vfSide * (1.5 / 720));
+    ctx.stroke();
   }
+  // Bumped slightly from SVG ref (6->7 width, 38->44 length) so the crosshair
+  // reads at typical phone-screen viewfinder sizes (vfSide ~ 360-420 px).
   const gap  = vfSide * (51 / 720);
-  const armW = Math.max(2.5, vfSide * (6 / 720));
-  const armL = vfSide * (38 / 720);
+  const armW = Math.max(4, vfSide * (7 / 720));
+  const armL = Math.max(20, vfSide * (44 / 720));
   pill(cx - armW/2, cy - gap - armL, armW, armL);
   pill(cx - armW/2, cy + gap, armW, armL);
   pill(cx - gap - armL, cy - armW/2, armL, armW);
@@ -468,11 +474,10 @@ function drawExternalCross(cx, cy, vfSide, color) {
   ctx.restore();
 }
 
-// Small "+" at the beam landing point. Geometry from Official Viewfinder.svg
-// (inner plus is 6 wide x 30 long in 720-unit reference, no surrounding ring).
-function drawCenterPlus(cx, cy, vfSide, color) {
+// Small "+" at beam landing point. White fill + black stroke matching
+// Official Viewfinder.svg's inner plus (6 wide x 30 long in 720-unit ref).
+function drawCenterPlus(cx, cy, vfSide, _unused) {
   ctx.save();
-  ctx.fillStyle = color;
   function pill(x0, y0, w, h) {
     const r = Math.min(w, h) / 2;
     ctx.beginPath();
@@ -480,13 +485,16 @@ function drawCenterPlus(cx, cy, vfSide, color) {
     ctx.arc(x0 + w - r, y0 + r, r, -Math.PI/2, Math.PI/2);
     ctx.lineTo(x0 + r, y0 + h);
     ctx.arc(x0 + r, y0 + r, r, Math.PI/2, -Math.PI/2);
-    ctx.closePath(); ctx.fill();
+    ctx.closePath();
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = Math.max(1, vfSide * (1.5 / 720));
+    ctx.stroke();
   }
-  const armW = Math.max(2.5, vfSide * (6 / 720));
-  const armL = vfSide * (30 / 720);
-  // Vertical pill (top half + bottom half merged)
+  const armW = Math.max(4, vfSide * (7 / 720));
+  const armL = Math.max(16, vfSide * (34 / 720));
   pill(cx - armW/2, cy - armL/2, armW, armL);
-  // Horizontal pill
   pill(cx - armL/2, cy - armW/2, armL, armW);
   ctx.restore();
 }
@@ -548,11 +556,8 @@ function drawScene() {
     const activeLocal = [{ x:-half, y:-half }, { x: half, y:-half }, { x: half, y: half }, { x:-half, y: half }];
     const activeScreen = pts2screen(activeLocal, l2s);
 
-    // In bounds tints + corner ticks
-    pathQuad(activeScreen);
-    ctx.fillStyle = p.inBounds ? 'rgba(180,220,255,0.05)' : 'rgba(255,71,87,0.10)';
-    ctx.fill();
-    drawCornerTicks(activeScreen, p.inBounds ? COLORS.collim : COLORS.red, 22);
+    // Active-area corner ticks - black, matches the real device
+    drawCornerTicks(activeScreen, p.inBounds ? '#000' : COLORS.red, 18);
 
     // Collimation pillow (only in bounds)
     if (p.inBounds && p.fieldHalf > 0) {
