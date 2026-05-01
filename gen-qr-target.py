@@ -1,4 +1,12 @@
-"""Generate qr-target.pdf — clean, professional printable target for the trainer."""
+"""Generate qr-target.pdf — clean printable target for the trainer.
+
+Layout (letter portrait, top → bottom):
+  - OXOS logo at top, with clearance equal to its own height all around.
+  - Title + subtitle
+  - ArUco marker dead-centered on the page
+  - "How to use" + access QR pinned to the bottom
+  - Footer credit line
+"""
 import io, os
 import cv2
 import cv2.aruco as aruco
@@ -45,16 +53,19 @@ qr_buf.seek(0)
 W, H = LETTER
 c = canvas.Canvas(OUT, pagesize=LETTER)
 
-# Logo
-logo_w = 4.4 * cm
-logo_h = logo_w * (101.25 / 464.07)
-logo_x = (W - logo_w) / 2
-logo_y = H - 1.6 * cm - logo_h
+# ---- Logo, top-centered with logo-height clearance on all sides ----
+logo_w  = 4.4 * cm
+logo_h  = logo_w * (101.25 / 464.07)
+clear_v = logo_h            # vertical breathing room == logo height
+clear_h = logo_h            # horizontal breathing room == logo height
+logo_x  = (W - logo_w) / 2
+logo_y  = H - clear_v - logo_h
 c.drawImage(ImageReader(io.BytesIO(logo_png_bytes)),
-            logo_x, logo_y, logo_w, logo_h, preserveAspectRatio=True, mask='auto')
+            logo_x, logo_y, logo_w, logo_h,
+            preserveAspectRatio=True, mask='auto')
 
-# Title
-title_y = logo_y - 0.9 * cm
+# Title sits below the logo's lower clearance bubble
+title_y = logo_y - clear_v - 0.55 * cm
 c.setFillColor(black)
 c.setFont("Helvetica-Bold", 18)
 c.drawCentredString(W / 2, title_y, "MC2 Viewfinder Trainer")
@@ -63,21 +74,21 @@ c.setFillColor(HexColor("#555555"))
 c.drawCentredString(W / 2, title_y - 0.55 * cm,
                     "Practice aiming the MC2 emitter with your phone.")
 
-# Marker — pushed UP (closer to title) to give more breathing room above
-# the footer block.  Total vertical space: title at top, then a generous
-# margin, marker, then ~3 cm of empty space before instructions/QR.
+# ---- Marker dead-centered on page ----
 marker_pt = MARKER_CM * cm
 mx = (W - marker_pt) / 2
-my = title_y - 1.4 * cm - marker_pt
+my = (H - marker_pt) / 2
 c.setFillColor(black)
 c.drawImage(ImageReader(marker_buf), mx, my, marker_pt, marker_pt,
             preserveAspectRatio=True, mask='auto')
 
-# Footer: instructions left, QR right — sits well below the marker.
-foot_top = my - 3.0 * cm
+# ---- Bottom block: instructions on left, access QR on right ----
+# Anchor the block near the bottom of the page, just above the footer credits.
+bottom_block_top = 6.2 * cm
+
 qr_size = 3.2 * cm
 qr_x = W - 2.5 * cm - qr_size
-qr_y = foot_top - qr_size
+qr_y = bottom_block_top - qr_size
 c.drawImage(ImageReader(qr_buf), qr_x, qr_y, qr_size, qr_size,
             preserveAspectRatio=True, mask='auto')
 c.setFont("Helvetica-Bold", 9)
@@ -88,7 +99,7 @@ c.setFillColor(HexColor("#666666"))
 c.drawCentredString(qr_x + qr_size / 2, qr_y - 0.85 * cm, "(scan with your phone)")
 
 inst_x = 2.5 * cm
-inst_y = foot_top - 0.2 * cm
+inst_y = bottom_block_top - 0.2 * cm
 c.setFillColor(black)
 c.setFont("Helvetica-Bold", 12)
 c.drawString(inst_x, inst_y, "How to use")
@@ -104,13 +115,14 @@ lines = [
 for i, ln in enumerate(lines):
     c.drawString(inst_x, inst_y - 0.7 * cm - i * 0.55 * cm, ln)
 
+# ---- Footer credits, anchored at very bottom ----
 c.setFont("Helvetica", 8)
 c.setFillColor(HexColor("#888888"))
 c.drawCentredString(W / 2, 1.6 * cm,
     "ArUco DICT_4X4_1000 ID 0  -  marker " + str(int(MARKER_CM)) + " cm x " + str(int(MARKER_CM)) + " cm")
 c.setFont("Helvetica-Bold", 8.5)
 c.setFillColor(HexColor("#444444"))
-c.drawCentredString(W / 2, 1.05 * cm,
+c.drawCentredString(W / 2, 1.0 * cm,
     "Built by the Advanced Concepts team  -  OXOS Medical")
 
 c.showPage()

@@ -27,16 +27,16 @@ OUT_DIR = os.environ.get("OUT_DIR", HERE)
 LOGO_SVG = os.path.join(ASSETS_DIR, "oxos-logo.svg")
 TRAINER_URL = "https://lukepfost-del.github.io/mc2-viewfinder-trainer/v2/"
 
-TILE_MM        = 60.0
+TILE_MM        = 80.0
 THICKNESS_MM   = 5.0
 FEATURE_DEPTH  = 0.6
 
 LOGO_WIDTH_MM       = 32.0
-LOGO_TOP_MARGIN_MM  = 3.0
+LOGO_TOP_MARGIN_MM  = 6.0
 QR_TARGET_SIZE_MM   = 38.0
 QR_LOGO_GAP_MM      = 5.0
 
-ARUCO_FILL_TILE = True
+ARUCO_SIZE_MM   = 60.0   # marker stays 60mm to match the paper version; 10mm white border
 
 
 def render_logo_mask(svg_path, target_height_px=1200):
@@ -166,7 +166,7 @@ aruco_matrix = (aruco_img == 0)
 # bottom (ArUco) face, the camera sees a left-right mirror of the polygon
 # orientation. Pre-mirroring here makes the camera-view canonical.
 aruco_matrix = aruco_matrix[:, ::-1]
-aruco_size_mm = TILE_MM if ARUCO_FILL_TILE else 50.0
+aruco_size_mm = ARUCO_SIZE_MM
 aruco_module_mm = aruco_size_mm / aruco_modules
 aruco_x0 = (TILE_MM - aruco_size_mm) / 2
 aruco_y0 = (TILE_MM - aruco_size_mm) / 2

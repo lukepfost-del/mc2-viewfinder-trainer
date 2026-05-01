@@ -1,7 +1,8 @@
 # MC2 Trainer 3D-Printed Target
 
 Dual-color, double-sided 3D-printable replacement for the paper QR/ArUco
-target. 60 mm × 60 mm × 5 mm, exact-fit two-color geometry.
+target. 80 mm × 80 mm × 5 mm tile, with a 60 mm ArUco marker centred on
+the back face surrounded by a built-in 10 mm white quiet zone.
 
 ## Files
 
@@ -16,8 +17,8 @@ target. 60 mm × 60 mm × 5 mm, exact-fit two-color geometry.
 
 ## Geometry
 
-- **Top face** — OXOS logo at top, QR code below. Decodes as `https://lukepfost-del.github.io/mc2-viewfinder-trainer/v2/`.
-- **Bottom face** — ArUco DICT_4X4_1000 ID 0, filling the full 60 mm to match the paper version's marker size (so the trainer's pose math doesn't change).
+- **Top face** — OXOS logo at top, 38 mm QR code below. Decodes as `https://lukepfost-del.github.io/mc2-viewfinder-trainer/v2/`.
+- **Bottom face** — ArUco DICT_4X4_1000 ID 0, 60 mm marker centred on an 80 mm tile so there is a 10 mm white quiet zone built in (the trainer's pose math is unchanged because the marker is still 6 cm).
 - Black features are recessed 0.6 mm into each face, ending flush with the surface. Total tile thickness is exactly 5.0 mm.
 - ArUco is pre-mirrored so the camera, looking at the bottom face directly, sees the canonical ID 0 pattern.
 
@@ -32,10 +33,6 @@ target. 60 mm × 60 mm × 5 mm, exact-fit two-color geometry.
 ## Single-color fallback (no MMU)
 
 If you don't have a multi-material printer, you can still use the paper PDF (`../qr-target.pdf`) — the 3D version's selling point is the dual color. With a single-color printer, the QR/ArUco features won't be visually distinct from the body and won't scan.
-
-## Quiet-zone note
-
-The ArUco fills the full tile, so detection requires a light surface around the tile (the paper version's white margin came from the paper itself). Place the tile on a plain light-colored surface for reliable detection. If you'd rather have the quiet zone built in, edit `gen_3d_target.py` and set `ARUCO_FILL_TILE = False` (gives a 50 mm marker on a 60 mm tile with 5 mm white border) — but you'll then need to update the trainer's marker size from 6 cm to 5 cm.
 
 ## Regeneration
 
