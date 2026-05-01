@@ -17,7 +17,7 @@ the back face surrounded by a built-in 10 mm white quiet zone.
 
 ## Geometry
 
-- **Top face** — OXOS logo at top, 38 mm QR code below. Decodes as `https://lukepfost-del.github.io/mc2-viewfinder-trainer/v2/`.
+- **Top face** — OXOS logo at top, 38 mm QR code below. Decodes as `https://lukepfost-del.github.io/mc2-viewfinder-trainer/`.
 - **Bottom face** — ArUco DICT_4X4_1000 ID 0, 60 mm marker centred on an 80 mm tile so there is a 10 mm white quiet zone built in (the trainer's pose math is unchanged because the marker is still 6 cm).
 - Black features are recessed 0.6 mm into each face, ending flush with the surface. Total tile thickness is exactly 5.0 mm.
 - ArUco is pre-mirrored so the camera, looking at the bottom face directly, sees the canonical ID 0 pattern.

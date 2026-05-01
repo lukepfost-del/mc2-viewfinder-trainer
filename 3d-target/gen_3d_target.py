@@ -25,7 +25,7 @@ ASSETS_DIR = os.environ.get("ASSETS_DIR", os.path.join(HERE, "assets"))
 OUT_DIR = os.environ.get("OUT_DIR", HERE)
 
 LOGO_SVG = os.path.join(ASSETS_DIR, "oxos-logo.svg")
-TRAINER_URL = "https://lukepfost-del.github.io/mc2-viewfinder-trainer/v2/"
+TRAINER_URL = "https://lukepfost-del.github.io/mc2-viewfinder-trainer/"
 
 TILE_MM        = 80.0
 THICKNESS_MM   = 5.0
