@@ -642,40 +642,66 @@ function drawTutorialOverlay(W, H, pose) {
     const tol = obj.tolDeg || 5;
     const onTarget = cur != null && Math.abs(cur - targ) <= tol;
 
-    // Big "TARGET XX°" pill at top center
-    const pillW = Math.min(W * 0.55, 230);
-    const pillH = Math.min(H * 0.11, 56);
-    const pillX = (W - pillW) / 2;
-    const pillY = H * 0.05;
+    // Sizes scale with viewfinder so text always fits.  Pill is wide
+    // enough to hold "TARGET 10°  ·  Now 12.3°" comfortably.
+    const fontBig   = Math.max(20, Math.min(32, Math.round(W * 0.072)));
+    const fontSmall = Math.max(11, Math.min(15, Math.round(W * 0.034)));
+    const padX      = Math.max(14, Math.round(W * 0.04));
+    const padY      = Math.max(8,  Math.round(W * 0.022));
+
+    const targetText = targ.toFixed(0) + '°';
+    const nowText    = cur != null ? 'Now ' + cur.toFixed(1) + '°' : 'Now —';
+    const labelText  = 'TARGET TILT';
+
     ctx.save();
-    // Background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.72)';
+    // First measure all text so the pill can size to fit.
+    ctx.font = 'bold ' + fontBig + 'px -apple-system, system-ui, sans-serif';
+    const tw = ctx.measureText(targetText).width;
+    ctx.font = '600 ' + fontSmall + 'px -apple-system, system-ui, sans-serif';
+    const lw = ctx.measureText(labelText).width;
+    const nw = ctx.measureText(nowText).width;
+
+    // Layout: label on top row, big target + now-readout on bottom row.
+    const rowGap   = Math.round(fontSmall * 0.4);
+    const bottomW  = tw + Math.round(fontSmall * 1.4) + nw;
+    const contentW = Math.max(lw, bottomW);
+    const pillW    = Math.min(W * 0.86, contentW + padX * 2);
+    const pillH    = padY * 2 + fontSmall + rowGap + fontBig + 2;
+    const pillX    = (W - pillW) / 2;
+    const pillY    = Math.max(8, Math.round(H * 0.04));
+
+    // Pill background
+    ctx.fillStyle   = 'rgba(0, 0, 0, 0.78)';
     ctx.strokeStyle = onTarget ? COLORS.green : COLORS.amber;
-    ctx.lineWidth = 2;
+    ctx.lineWidth   = 2;
     roundRect(pillX, pillY, pillW, pillH, 10);
     ctx.fill();
     ctx.stroke();
 
-    // "TARGET" small label
+    // Top row: TARGET TILT label
     ctx.fillStyle = onTarget ? COLORS.green : COLORS.amber;
-    ctx.font = 'bold 11px -apple-system, system-ui, sans-serif';
+    ctx.font = '600 ' + fontSmall + 'px -apple-system, system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText('TARGET TILT', W / 2, pillY + 6);
+    ctx.fillText(labelText, pillX + pillW / 2, pillY + padY);
 
+    // Bottom row: big "10°" on the left, "Now X.X°" on the right
+    const baseY = pillY + padY + fontSmall + rowGap;
+    const sectionW = bottomW;
+    const bx = pillX + (pillW - sectionW) / 2;
     // Big target number
+    ctx.font = 'bold ' + fontBig + 'px -apple-system, system-ui, sans-serif';
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 26px -apple-system, system-ui, sans-serif';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(targ.toFixed(0) + '°', W / 2, pillY + pillH * 0.42);
+    ctx.fillText(targetText, bx, baseY);
+    // Now readout
+    ctx.font = '600 ' + fontSmall + 'px -apple-system, system-ui, sans-serif';
+    ctx.fillStyle = onTarget ? COLORS.green : '#cbd1dc';
+    // baseline-align with the bigger number's optical center
+    ctx.textBaseline = 'middle';
+    ctx.fillText(nowText, bx + tw + Math.round(fontSmall * 1.4), baseY + fontBig * 0.55);
 
-    // Live current tilt below the pill
-    if (cur != null) {
-      ctx.font = 'bold 16px -apple-system, system-ui, sans-serif';
-      ctx.fillStyle = onTarget ? COLORS.green : '#fff';
-      ctx.textBaseline = 'top';
-      ctx.fillText('Now ' + cur.toFixed(1) + '°', W / 2, pillY + pillH + 6);
-    }
     ctx.restore();
   }
 }

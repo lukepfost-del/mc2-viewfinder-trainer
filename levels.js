@@ -30,7 +30,7 @@ const TUNING = {
   aimL1MissRadiusCm:  6.0,    // accuracy = 0 beyond this (linear in between)
 
   // Level 2: COLLIMATION SIZE — match target % of max field
-  collimTargets:      [0.40, 0.70, 1.00],   // small, medium, max — last is largest
+  collimTargets:      [0.50, 0.70, 1.00],   // small, medium, max — last is largest
   collimLockTolPct:   0.07,                 // within 7% to arm EXPOSE
   collimMissTolPct:   0.20,                 // accuracy=0 at 20% off
 
