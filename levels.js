@@ -30,7 +30,7 @@ const TUNING = {
   aimL1MissRadiusCm:  6.0,    // accuracy = 0 beyond this (linear in between)
 
   // Level 2: COLLIMATION SIZE — match target % of max field
-  collimTargets:      [0.50, 0.70, 1.00],   // small, medium, max — last is largest
+  collimTargets:      [0.70, 1.00],         // medium and max — two reps total
   collimLockTolPct:   0.07,                 // within 7% to arm EXPOSE
   collimMissTolPct:   0.20,                 // accuracy=0 at 20% off
 
@@ -122,13 +122,12 @@ const LEVELS = [
     layer:    'center',
     readouts: ['collim'],
     buildObjectives: function () {
-      // Each target box is anchored to a specific edge of the active area
-      // — that's how the field actually behaves when the aim is off-center.
-      // Order: small-right, medium-top, full-center (the user's "last is largest").
+      // Two reps: 70% anchored to the right edge (forces an off-center aim
+      // — that's how the field actually behaves), then 100% centered (full
+      // active area, last is largest).
       return [
         { targetPct: TUNING.collimTargets[0], anchor: 'right'  },
-        { targetPct: TUNING.collimTargets[1], anchor: 'top'    },
-        { targetPct: TUNING.collimTargets[2], anchor: 'center' },
+        { targetPct: TUNING.collimTargets[1], anchor: 'center' },
       ];
     },
     evaluate: function (pose, obj) {

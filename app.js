@@ -84,7 +84,6 @@ const lcContinueBtn = document.getElementById('lc-continue');
 const lcRetryBtn    = document.getElementById('lc-retry');
 const repDots       = document.getElementById('rep-dots');
 const feedbackLabel = document.getElementById('feedback-label');
-const camProfileSel = document.getElementById('camera-profile');
 const sidTargetMarker = document.getElementById('sid-target-marker');
 
 const kvValEl       = document.getElementById('kv-value');
@@ -161,9 +160,6 @@ const state = {
   prevArmed: false,          // for arm-tick edge detection
   paused: false,             // true during level-complete overlay
   stars: loadStars(),        // best stars per level (kept for tile display)
-
-  // camera profile (FOV approximation)
-  cameraProfileId: loadCameraProfile(),
 };
 
 // ============================================================================
@@ -1291,25 +1287,6 @@ function renderTileStars() {
   for (const lvl of MC2_LEVELS) total += (state.stars[lvl.id] || 0);
   tileStars.textContent = total === 0 ? '' : ('★ ' + total + ' / ' + possible);
 }
-function loadCameraProfile() {
-  try {
-    const id = localStorage.getItem('mc2v2-cam-profile');
-    if (id && Array.isArray(MC2_CAMERA_PROFILES) && MC2_CAMERA_PROFILES.find(p => p.id === id)) return id;
-  } catch (_) {}
-  return (Array.isArray(MC2_CAMERA_PROFILES) && MC2_CAMERA_PROFILES[0] && MC2_CAMERA_PROFILES[0].id) || 'default';
-}
-function getCameraProfile() {
-  return (Array.isArray(MC2_CAMERA_PROFILES) && MC2_CAMERA_PROFILES.find(p => p.id === state.cameraProfileId)) || (MC2_CAMERA_PROFILES && MC2_CAMERA_PROFILES[0]);
-}
-function applyCameraProfile() {
-  const p = getCameraProfile();
-  if (p && p.focalRel) SETTINGS.focalRel = p.focalRel;
-}
-function setCameraProfile(id) {
-  state.cameraProfileId = id;
-  applyCameraProfile();
-  try { localStorage.setItem('mc2v2-cam-profile', id); } catch (_) {}
-}
 
 // ============================================================================
 // Main loop
@@ -1437,21 +1414,6 @@ function stepArr(arr, val, dir) {
   return arr[j];
 }
 
-if (camProfileSel) {
-  if (camProfileSel.options.length === 0 && Array.isArray(MC2_CAMERA_PROFILES)) {
-    for (const p of MC2_CAMERA_PROFILES) {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = p.label;
-      camProfileSel.appendChild(opt);
-    }
-  }
-  try { camProfileSel.value = state.cameraProfileId; } catch (_) {}
-  camProfileSel.addEventListener('change', function () {
-    setCameraProfile(camProfileSel.value);
-  });
-}
-
-applyCameraProfile();
+// Focal length is now a fixed default (~75° FOV — typical phone main camera).
+// SETTINGS.focalRel was already set above; nothing else to do at boot.
 showStartScreen();
-

@@ -115,34 +115,6 @@ html, body {
   font-size: 11px;
 }
 
-.cam-profile-block {
-  text-align: left;
-  background: var(--bg-2);
-  border: 1px solid var(--pill-stroke);
-  border-radius: 12px;
-  padding: 12px 14px;
-  margin-bottom: 16px;
-}
-.cam-profile-block label {
-  display: block;
-  font-size: 11px; letter-spacing: 1px;
-  color: var(--text-dim); font-weight: 700;
-  margin-bottom: 6px;
-}
-.cam-profile-block select {
-  width: 100%;
-  padding: 10px 12px;
-  font-size: 14px;
-  background: var(--bg-1);
-  color: var(--text);
-  border: 1px solid var(--pill-stroke);
-  border-radius: 8px;
-}
-.cam-profile-hint {
-  margin: 8px 0 0 0;
-  font-size: 11px; color: var(--text-dim); line-height: 1.4;
-}
-
 /* ===================================================================
    APP SHELL — top bar / prompt / viewfinder / feedback / EXPOSE
    =================================================================== */
