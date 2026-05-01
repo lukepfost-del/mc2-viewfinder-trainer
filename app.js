@@ -348,6 +348,11 @@ function mul3x3(P, Q) {
 function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
 function clamp01(v){ return Math.max(0, Math.min(1, v)); }
 
+// Returns {deg, x, y} where deg is total tilt magnitude and (x, y) are the
+// per-axis components in degrees.  x = rotation about the camera Y-axis (cassette
+// tilted left/right in image), y = rotation about the camera X-axis (tilted up/
+// down).  Matches the (tilt.x, tilt.y) signature the device's TiltGuideOverlay
+// expects.
 function tiltFromH(H, fx, fy, cx, cy) {
   const Hn = [
     (H[0]-cx*H[6])/fx, (H[1]-cx*H[7])/fx, (H[2]-cx*H[8])/fx,
@@ -365,8 +370,15 @@ function tiltFromH(H, fx, fy, cx, cy) {
     r1n[0]*r2n[1]-r1n[1]*r2n[0],
   ];
   const nlen = Math.hypot(n[0],n[1],n[2]) || 1;
-  const nz = Math.abs(n[2]/nlen);
-  return Math.acos(Math.max(0, Math.min(1, nz))) * 180 / Math.PI;
+  const nx = n[0]/nlen, ny = n[1]/nlen, nz = n[2]/nlen;
+  const nzAbs = Math.abs(nz);
+  const deg = Math.acos(Math.max(0, Math.min(1, nzAbs))) * 180 / Math.PI;
+  // Per-axis: arctan(component / forward) — sign reflects direction.  Use
+  // signed nz so the perpendicular pole is consistent.
+  const sgn = nz >= 0 ? 1 : -1;
+  const tiltX = Math.atan2(sgn * nx, nzAbs) * 180 / Math.PI;
+  const tiltY = Math.atan2(sgn * ny, nzAbs) * 180 / Math.PI;
+  return { deg: deg, x: tiltX, y: tiltY };
 }
 
 // ============================================================================
@@ -395,11 +407,17 @@ function buildPose(qr) {
   const avgSidePx = (sides[0]+sides[1]+sides[2]+sides[3])/4;
   const focalPx = SETTINGS.focalRel * Math.max(state.frameW, state.frameH);
   let sidCm = focalPx * SETTINGS.qrPhysicalCm / Math.max(avgSidePx, 1);
-  let tiltDeg = tiltFromH(H_l_to_img, focalPx, focalPx, state.frameW/2, state.frameH/2);
+  const tiltAll = tiltFromH(H_l_to_img, focalPx, focalPx, state.frameW/2, state.frameH/2);
+  let tiltDeg = tiltAll.deg;
 
   const t = performance.now();
   sidCm = sidFilter.filter(sidCm, t);
   tiltDeg = tiltFilter.filter(tiltDeg, t);
+  // Per-axis tilt (used for the device-style crosshair snap).  We don't
+  // smooth the per-axis components separately — the magnitude is smoothed
+  // above; the components ride the unsmoothed direction so the snap is
+  // responsive without lagging.
+  const tiltVec = { x: tiltAll.x, y: tiltAll.y };
 
   const aimImg = { x: state.frameW/2, y: state.frameH/2 };
   const aimLocal = applyH(H_img_to_l, aimImg.x, aimImg.y);
@@ -419,7 +437,7 @@ function buildPose(qr) {
 
   return {
     H_l_to_img, H_img_to_l, H_l_to_videoPx, H_videoPx_to_l,
-    sidCm, tiltDeg, roll,
+    sidCm, tiltDeg, tiltVec, roll,
     aimLocal, fieldHalf, half, inBounds,
   };
 }
@@ -621,7 +639,10 @@ function drawScene() {
       drawCollimationPillow(fScreen, 0.025, 3, COLORS.collim);
     }
 
-    // Crosshair tracks aim point
+    // Crosshair: center "+" tracks the beam intersection on the cassette.
+    // External cross "completes" (snaps to center) when both per-axis tilts
+    // are below the snap angle; otherwise it slides AWAY from center
+    // proportional to the 2D tilt vector.  Matches device-side TiltGuideOverlay.
     extCrossImg.classList.remove('hidden');
     ctrCrossImg.classList.remove('hidden');
     crosshair.style.opacity = '1';
@@ -630,6 +651,23 @@ function drawScene() {
     const dy = aimScreen.y - H / 2;
     crosshair.style.transform =
       `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+
+    // Per-axis tilt offset for the external cross.  Snap angle 5° matches
+    // device default (xr.general.tilt_snap_angle).  tiltScalePx tunes
+    // how far the cross slides per degree of tilt.
+    const SNAP_DEG = 5.0;
+    const tiltScalePx = Math.min(W, H) * 0.012;   // ~5px/° at a 420px viewfinder
+    const tx = (p.tiltVec && p.tiltVec.x) || 0;
+    const ty = (p.tiltVec && p.tiltVec.y) || 0;
+    let extDx = 0, extDy = 0;
+    if (Math.abs(tx) >= SNAP_DEG || Math.abs(ty) >= SNAP_DEG) {
+      extDx = tx * tiltScalePx;
+      extDy = ty * tiltScalePx;
+    }
+    extCrossImg.style.transform =
+      `translate(calc(-50% + ${extDx}px), calc(-50% + ${extDy}px))`;
+    // Center cross stays exactly at the parent #crosshair origin
+    ctrCrossImg.style.transform = 'translate(-50%, -50%)';
 
     // HUD readouts (Play mode + final tutorial level)
     const ssdCm = p.sidCm - SETTINGS.patientThicknessCm;
@@ -1161,7 +1199,6 @@ function stepArr(arr, val, dir) {
   return arr[j];
 }
 
-// Camera profile picker — options are static in HTML; we sync the saved value.
 if (camProfileSel) {
   if (camProfileSel.options.length === 0 && Array.isArray(MC2_CAMERA_PROFILES)) {
     for (const p of MC2_CAMERA_PROFILES) {
