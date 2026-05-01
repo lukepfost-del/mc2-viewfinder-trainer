@@ -99,6 +99,16 @@ html, body {
   font-size: 11px; color: var(--text-dim); line-height: 1.5;
   margin: 0;
 }
+.credit {
+  font-size: 11px; color: var(--text-dim);
+  margin: 14px 0 0 0;
+  letter-spacing: 0.3px;
+  opacity: 0.85;
+}
+.credit strong {
+  color: var(--text-soft);
+  font-weight: 700;
+}
 .footnote code {
   background: rgba(255,255,255,0.06);
   padding: 1px 5px; border-radius: 4px;

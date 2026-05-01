@@ -63,16 +63,18 @@ c.setFillColor(HexColor("#555555"))
 c.drawCentredString(W / 2, title_y - 0.55 * cm,
                     "Practice aiming the MC2 emitter with your phone.")
 
-# Centered marker
+# Marker — pushed UP (closer to title) to give more breathing room above
+# the footer block.  Total vertical space: title at top, then a generous
+# margin, marker, then ~3 cm of empty space before instructions/QR.
 marker_pt = MARKER_CM * cm
 mx = (W - marker_pt) / 2
-my = (H - marker_pt) / 2 - 0.4 * cm
+my = title_y - 1.4 * cm - marker_pt
 c.setFillColor(black)
 c.drawImage(ImageReader(marker_buf), mx, my, marker_pt, marker_pt,
             preserveAspectRatio=True, mask='auto')
 
-# Footer: instructions left, QR right
-foot_top = my - 1.4 * cm
+# Footer: instructions left, QR right — sits well below the marker.
+foot_top = my - 3.0 * cm
 qr_size = 3.2 * cm
 qr_x = W - 2.5 * cm - qr_size
 qr_y = foot_top - qr_size
@@ -104,11 +106,15 @@ for i, ln in enumerate(lines):
 
 c.setFont("Helvetica", 8)
 c.setFillColor(HexColor("#888888"))
-c.drawCentredString(W / 2, 1.3 * cm,
-    f"ArUco DICT_4X4_1000 ID 0  -  marker {MARKER_CM:.0f} cm x {MARKER_CM:.0f} cm  -  OXOS Medical")
+c.drawCentredString(W / 2, 1.6 * cm,
+    "ArUco DICT_4X4_1000 ID 0  -  marker " + str(int(MARKER_CM)) + " cm x " + str(int(MARKER_CM)) + " cm")
+c.setFont("Helvetica-Bold", 8.5)
+c.setFillColor(HexColor("#444444"))
+c.drawCentredString(W / 2, 1.05 * cm,
+    "Built by the Advanced Concepts team  -  OXOS Medical")
 
 c.showPage()
 c.save()
 
-print(f"wrote {OUT} ({os.path.getsize(OUT)} bytes)")
-print(f"wrote {PNG_OUT} ({os.path.getsize(PNG_OUT)} bytes)")
+print("wrote", OUT, os.path.getsize(OUT), "bytes")
+print("wrote", PNG_OUT, os.path.getsize(PNG_OUT), "bytes")
