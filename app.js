@@ -157,6 +157,7 @@ const state = {
   objectives: [],            // built per-level via lvl.buildObjectives()
   objAccuracies: [],         // accuracy 0..1 per objective (stored on EXPOSE)
   levelAccuracies: {},       // {levelId: avgAccuracy} — used for retry-weakest at end
+  retryFromFinal: false,     // true when user is replaying a level via the retry button
   repArmed: false,           // is pose currently in spec? (drives button color)
   prevArmed: false,          // for arm-tick edge detection
   paused: false,             // true during level-complete overlay
@@ -627,6 +628,69 @@ function drawLevelTarget(l2s) {
   ctx.restore();
 }
 
+// Big, prominent on-viewfinder labels for whichever metric is the focus of
+// the current tutorial level (currently L3 = tilt).  Drawn on the overlay
+// canvas so it sits above the cassette image but below the crosshair.
+function drawTutorialOverlay(W, H, pose) {
+  const lvl = MC2_LEVELS[state.levelIdx];
+  if (!lvl) return;
+  const obj = state.objectives[state.objIdx];
+  if (!obj) return;
+
+  if (lvl.id === 'perp') {
+    const cur = pose ? pose.tiltDeg : null;
+    const targ = obj.targetTilt;
+    const tol = obj.tolDeg || 5;
+    const onTarget = cur != null && Math.abs(cur - targ) <= tol;
+
+    // Big "TARGET XX°" pill at top center
+    const pillW = Math.min(W * 0.55, 230);
+    const pillH = Math.min(H * 0.11, 56);
+    const pillX = (W - pillW) / 2;
+    const pillY = H * 0.05;
+    ctx.save();
+    // Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.72)';
+    ctx.strokeStyle = onTarget ? COLORS.green : COLORS.amber;
+    ctx.lineWidth = 2;
+    roundRect(pillX, pillY, pillW, pillH, 10);
+    ctx.fill();
+    ctx.stroke();
+
+    // "TARGET" small label
+    ctx.fillStyle = onTarget ? COLORS.green : COLORS.amber;
+    ctx.font = 'bold 11px -apple-system, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('TARGET TILT', W / 2, pillY + 6);
+
+    // Big target number
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 26px -apple-system, system-ui, sans-serif';
+    ctx.textBaseline = 'top';
+    ctx.fillText(targ.toFixed(0) + '°', W / 2, pillY + pillH * 0.42);
+
+    // Live current tilt below the pill
+    if (cur != null) {
+      ctx.font = 'bold 16px -apple-system, system-ui, sans-serif';
+      ctx.fillStyle = onTarget ? COLORS.green : '#fff';
+      ctx.textBaseline = 'top';
+      ctx.fillText('Now ' + cur.toFixed(1) + '°', W / 2, pillY + pillH + 6);
+    }
+    ctx.restore();
+  }
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y,     x + w, y + r,     r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.arcTo(x,     y + h, x, y + h - r,     r);
+  ctx.arcTo(x,     y,     x + r, y,         r);
+  ctx.closePath();
+}
+
 function updateSidGauge(sidCm, ok) {
   if (!Number.isFinite(sidCm)) {
     sidReadout.style.top = '47.83%';
@@ -686,7 +750,10 @@ function drawScene() {
     drawActiveAreaOutline(activeScreen);
 
     // Tutorial: ghost-target ring at level objective
-    if (state.mode === MODE.TUTORIAL) drawLevelTarget(l2s);
+    if (state.mode === MODE.TUTORIAL) {
+      drawLevelTarget(l2s);
+      drawTutorialOverlay(W, H, p);
+    }
 
     // Collimation pillow (only in bounds)
     if (p.inBounds && p.fieldHalf > 0) {
@@ -1082,6 +1149,15 @@ function showLevelComplete() {
 function onContinue() {
   lcOverlay.classList.add('hidden');
   state.paused = false;
+  // If the user just finished a "retry weakest" pass, return them to the
+  // final-tutorial summary screen with their updated scores rather than
+  // advancing into Play.
+  if (state.retryFromFinal) {
+    state.retryFromFinal = false;
+    state.levelIdx = MC2_LEVELS.length - 1;
+    showLevelComplete();
+    return;
+  }
   const lvl = MC2_LEVELS[state.levelIdx];
   if (lvl.isFinal) {
     startPlay({ keepCamera: true });
@@ -1250,12 +1326,10 @@ function showStartScreen() {
 }
 
 routeTutorial.addEventListener('click', function () {
-  mc2Status('Tutorial tapped — requesting camera…', 'info');
   try { MC2Audio.unlock(); } catch (e) { mc2Status('Audio unlock failed: ' + e, 'error'); }
   try { startTutorial(); } catch (e) { mc2Status('startTutorial threw: ' + (e && e.message), 'error'); }
 });
 routePlay.addEventListener('click', function () {
-  mc2Status('Play tapped — requesting camera…', 'info');
   try { MC2Audio.unlock(); } catch (e) { mc2Status('Audio unlock failed: ' + e, 'error'); }
   try { startPlay(); } catch (e) { mc2Status('startPlay threw: ' + (e && e.message), 'error'); }
 });
@@ -1312,6 +1386,7 @@ if (lcRetryBtn) lcRetryBtn.addEventListener('click', function () {
   lcOverlay.classList.add('hidden');
   state.paused = false;
   state.levelIdx = idx;
+  state.retryFromFinal = true;
   lcRetryBtn.classList.add('hidden');
   setLevelUI();
 });
