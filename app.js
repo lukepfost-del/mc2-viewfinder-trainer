@@ -148,11 +148,13 @@ const state = {
   modeIdx: 1, modes: ['Single','DDR','Fluoro','Photo'],
   capturing: false,
 
-  // tutorial
+  // tutorial — objective-based: each level has an array of targets, each
+  // graded by accuracy on EXPOSE.
   levelIdx: 0,
-  repsDone: 0,               // reps completed in current level
+  objIdx: 0,                 // current objective within the level
+  objectives: [],            // built per-level via lvl.buildObjectives()
+  objAccuracies: [],         // accuracy 0..1 per objective (stored on EXPOSE)
   repArmed: false,           // is pose currently in spec? (drives button color)
-  awaitingReset: false,      // after locking a rep, must drift out before next can arm
   prevArmed: false,          // for arm-tick edge detection
   paused: false,             // true during level-complete overlay
   stars: loadStars(),        // best stars per level (kept for tile display)
@@ -505,24 +507,60 @@ function drawCollimationPillow(quad, bowFraction, lineWidth, color) {
 function drawLevelTarget(l2s) {
   const lvl = MC2_LEVELS[state.levelIdx];
   if (!lvl) return;
-  let radiusCm = null;
-  if      (lvl.id === 'aim')    radiusCm = MC2_TUNING.aimRadiusCm;
-  else if (lvl.id === 'center') radiusCm = MC2_TUNING.centerRadiusCm;
-  if (radiusCm == null) return;
+  const obj = state.objectives[state.objIdx];
+  if (!obj) return;
 
-  const cx = l2s.cx, cy = l2s.cy;
-  const rPx = radiusCm * l2s.scale;
-
-  const r = state.pose ? Math.hypot(state.pose.aimLocal.x, state.pose.aimLocal.y) : Infinity;
-  const inSpec = r <= radiusCm;
+  // Map a (cm, cm) point on the cassette plane to screen pixels via l2s.
+  function localToScreen(x, y) { return applyH(l2s.H_l_to_s, x, y); }
 
   ctx.save();
-  ctx.setLineDash([6, 6]);
-  ctx.strokeStyle = inSpec ? COLORS.green : COLORS.amber;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
-  ctx.stroke();
+
+  if (lvl.id === 'aim') {
+    // Yellow dashed ring at the target spot on the cassette.
+    const sp = localToScreen(obj.targetX, obj.targetY);
+    const rPx = MC2_TUNING.aimL1LockRadiusCm * l2s.scale;
+    const dx = state.pose ? state.pose.aimLocal.x - obj.targetX : 999;
+    const dy = state.pose ? state.pose.aimLocal.y - obj.targetY : 999;
+    const onTarget = Math.hypot(dx, dy) <= MC2_TUNING.aimL1LockRadiusCm;
+    ctx.setLineDash([6, 6]);
+    ctx.strokeStyle = onTarget ? COLORS.green : COLORS.amber;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, rPx, 0, Math.PI * 2);
+    ctx.stroke();
+    // Center cross to make the target unmistakable
+    ctx.setLineDash([]);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(sp.x - 8, sp.y); ctx.lineTo(sp.x + 8, sp.y);
+    ctx.moveTo(sp.x, sp.y - 8); ctx.lineTo(sp.x, sp.y + 8);
+    ctx.stroke();
+  }
+  else if (lvl.id === 'collim') {
+    // Ghost dashed rectangle showing target collimator size at cassette center.
+    const targetHalf = obj.targetPct * (MC2_TUNING && MC2_LEVELS[1] ? 0 : 0); // dummy
+    const half = state.pose ? state.pose.half : (21.35 / 2);
+    const tHalf = obj.targetPct * half;
+    const corners = [
+      { x: -tHalf, y: -tHalf }, { x: tHalf, y: -tHalf },
+      { x:  tHalf, y:  tHalf }, { x:-tHalf, y:  tHalf },
+    ].map(function (p) { return localToScreen(p.x, p.y); });
+    ctx.setLineDash([8, 6]);
+    ctx.strokeStyle = COLORS.amber;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    corners.forEach(function (p, i) { i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y); });
+    ctx.closePath();
+    ctx.stroke();
+    // Label the target % at the bottom of the ghost rect
+    const pct = Math.round(obj.targetPct * 100) + '%';
+    ctx.setLineDash([]);
+    ctx.font = 'bold 12px -apple-system, system-ui, sans-serif';
+    ctx.fillStyle = COLORS.amber;
+    ctx.textAlign = 'center';
+    ctx.fillText('Target ' + pct, corners[2].x === corners[3].x ? (corners[2].x + corners[3].x) / 2 : (corners[2].x + corners[3].x) / 2, corners[2].y + 16);
+  }
+
   ctx.restore();
 }
 
@@ -707,129 +745,144 @@ function setLevelUI() {
   promptStep.textContent = lvl.step;
   promptText.textContent = lvl.title;
   promptHint.textContent = lvl.hint;
-  updateLevelPill();
 
   // Layer the HUD chrome
   viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid');
   if (lvl.layer !== 'full') viewfinderEl.classList.add('layer-' + lvl.layer);
 
-  // Tutorial target visibility (rings on cassette plane)
-  if (lvl.id === 'aim' || lvl.id === 'center') tutTarget.classList.remove('hidden');
-  else                                          tutTarget.classList.add('hidden');
+  // Tutorial target visibility — used for L1 (aim), repurposed below for L2
+  tutTarget.classList.add('hidden');
 
   // Feedback strip: hide hold meter; show rep counter + readouts only.
   holdMeter.style.display = 'none';
   liveReadouts.style.display = 'flex';
 
-  // EXPOSE button is the lock action for ALL tutorial levels now.
+  // EXPOSE button is the lock action for ALL tutorial levels.
   triggerBtn.classList.remove('hidden', 'armed');
   skipBtn.classList.remove('hidden');
 
-  // Reset per-level rep state
-  state.repsDone = 0;
-  state.repArmed = false;
-  state.awaitingReset = false;
-  state.prevArmed = false;
+  // Build the level's objectives (may be random)
+  state.objectives    = lvl.buildObjectives ? lvl.buildObjectives() : [{}];
+  state.objIdx        = 0;
+  state.objAccuracies = [];
+  state.repArmed      = false;
+  state.prevArmed     = false;
 
+  updateLevelPill();
   renderRepDots();
+  updateObjectivePrompt();
 }
 
 function updateLevelPill() {
   const lvl = MC2_LEVELS[state.levelIdx];
   if (!lvl) return;
+  const total = state.objectives.length || 1;
   levelPill.textContent =
-    `${lvl.step.replace(/\s+/g,' ')} · ${state.repsDone}/${lvl.reps}`;
+    `${lvl.step.replace(/\s+/g,' ')} · ${state.objIdx}/${total}`;
 }
 
 function renderRepDots() {
-  const lvl = MC2_LEVELS[state.levelIdx];
-  if (!lvl) { repDots.innerHTML = ''; return; }
+  if (!state.objectives.length) { repDots.innerHTML = ''; return; }
   let html = '';
-  for (let i = 0; i < lvl.reps; i++) {
-    html += `<span class="rep-dot ${i < state.repsDone ? 'done' : ''}"></span>`;
+  for (let i = 0; i < state.objectives.length; i++) {
+    html += `<span class="rep-dot ${i < state.objIdx ? 'done' : ''}"></span>`;
   }
   repDots.innerHTML = html;
 }
 
+// Per-objective text shown under the level title
+function updateObjectivePrompt() {
+  const lvl = MC2_LEVELS[state.levelIdx];
+  const obj = state.objectives[state.objIdx];
+  if (!lvl || !obj) return;
+  let line = '';
+  if (lvl.id === 'aim')    line = `Target ${state.objIdx + 1} of ${state.objectives.length}: aim at the yellow ring.`;
+  else if (lvl.id === 'collim') {
+    const pct = Math.round(obj.targetPct * 100);
+    line = `Target ${state.objIdx + 1} of ${state.objectives.length}: collimator at ${pct}% of max.`;
+  }
+  else if (lvl.id === 'perp') line = obj.label || `Target tilt ${obj.targetTilt}°`;
+  else if (lvl.id === 'sid')  line = `Target ${state.objIdx + 1} of ${state.objectives.length}: ${obj.targetSid} cm.`;
+  else if (lvl.id === 'expose') line = 'One attempt — make it count.';
+  promptHint.textContent = line || lvl.hint;
+}
+
+
+// ============================================================================
+// Tutorial state machine — OBJECTIVE-BASED
+// Each level has an array of objectives.  One EXPOSE press = one objective
+// graded by accuracy.  No hold meters, no rearm gating between objectives
+// (each new objective has a different target so the button naturally unarms).
+// ============================================================================
 function tickTutorial(_dtMs) {
   if (state.paused) return;
   const lvl = MC2_LEVELS[state.levelIdx];
   if (!lvl) return;
+  const obj = state.objectives[state.objIdx];
+  if (!obj) return;
 
-  const result = lvl.inSpec(state.pose);
+  const result = lvl.evaluate(state.pose, obj);
 
-  // Live readouts
-  renderReadouts(lvl.readouts, state.pose, result);
-
-  // Rearm gating: after a rep is locked, user must drift OUT of spec before
-  // the button can arm again.  This keeps each rep deliberate.
-  if (state.awaitingReset) {
-    if (lvl.resetCheck(state.pose)) {
-      state.awaitingReset = false;
-    }
-  }
+  // Live readouts — augment with current objective context
+  renderReadouts(lvl.readouts, state.pose, result, obj);
 
   // Update arm state
-  const armable = result.ok && !state.awaitingReset;
-  state.repArmed = armable;
-
-  // Subtle armTick ONLY on the rising edge (don't repeat)
-  if (armable && !state.prevArmed) {
-    MC2Audio.armTick();
-  }
-  state.prevArmed = armable;
+  state.repArmed = !!result.ok;
+  if (result.ok && !state.prevArmed) MC2Audio.armTick();
+  state.prevArmed = result.ok;
 
   // Visual feedback
-  triggerBtn.classList.toggle('armed', armable);
+  triggerBtn.classList.toggle('armed', !!result.ok);
   viewfinderEl.classList.remove('armed','blocked','searching');
   if (!state.pose)         viewfinderEl.classList.add('searching');
   else if (result.ok)      viewfinderEl.classList.add('armed');
   else                     viewfinderEl.classList.add('blocked');
 
-  // Hint label updates dynamically with reason when out of spec
-  const labelText = state.awaitingReset
-    ? `Rep ${state.repsDone} locked — move off target to start next rep`
-    : (result.ok
-        ? 'Hold steady — press EXPOSE'
-        : (MC2_REASON_TEXT[result.reason] || lvl.hint));
+  // Hint label dynamic
+  const labelText = result.ok
+    ? 'On target — press EXPOSE'
+    : (MC2_REASON_TEXT[result.reason] || lvl.hint);
   feedbackLabel.textContent = labelText;
-
-  // Tutorial target ring on cassette plane: locked when in spec
-  if (lvl.id === 'aim' || lvl.id === 'center') {
-    tutTarget.classList.toggle('locked', !!result.ok);
-  }
 }
 
 // Called when EXPOSE is pressed during tutorial.
-// If we're armed, lock a rep; otherwise play the soft fail tone.
 function tryLockRep() {
   if (state.paused) return;
   const lvl = MC2_LEVELS[state.levelIdx];
   if (!lvl) return;
+  const obj = state.objectives[state.objIdx];
+  if (!obj) return;
 
-  if (!state.repArmed) {
+  // Final level (single shot) — record whatever accuracy we get and end.
+  // Other levels: must be in spec to lock; otherwise soft-fail.
+  const result = lvl.evaluate(state.pose, obj);
+
+  if (!result.ok && !lvl.isFinal) {
     MC2Audio.failPress();
-    flashFeedback('Not in spec yet');
+    flashFeedback('Not on target yet');
     return;
   }
 
-  // Lock the rep
-  state.repsDone++;
-  state.awaitingReset = true;
+  // Record accuracy and advance
+  state.objAccuracies.push(result.accuracy || 0);
+  state.objIdx++;
   state.repArmed = false;
   state.prevArmed = false;
   triggerBtn.classList.remove('armed');
   MC2Audio.lockRep();
   renderRepDots();
   updateLevelPill();
-  flashFeedback(`Rep ${state.repsDone} / ${lvl.reps} locked`);
 
-  // Final-level taps also fire the shutter flash so it FEELS like an exposure
+  const accPct = Math.round((result.accuracy || 0) * 100);
+  flashFeedback(`Locked — accuracy ${accPct}%`);
+
+  // Final level always shutters; others shutter on the last objective only
   if (lvl.isFinal) fireShutterEffect();
 
-  if (state.repsDone >= lvl.reps) {
-    // Brief delay so the user sees the last rep land before the overlay
+  if (state.objIdx >= state.objectives.length) {
     setTimeout(showLevelComplete, 350);
+  } else {
+    updateObjectivePrompt();
   }
 }
 
@@ -838,37 +891,48 @@ function flashFeedback(text) {
   feedbackLabel.textContent = text;
   feedbackLabel.classList.add('flash');
   clearTimeout(_flashTimer);
-  _flashTimer = setTimeout(() => feedbackLabel.classList.remove('flash'), 600);
+  _flashTimer = setTimeout(function () { feedbackLabel.classList.remove('flash'); }, 700);
 }
 
 function fireShutterEffect() {
   flash.classList.add('on');
-  setTimeout(() => flash.classList.remove('on'), 180);
+  setTimeout(function () { flash.classList.remove('on'); }, 180);
 }
 
 function showLevelComplete() {
   state.paused = true;
   const lvl = MC2_LEVELS[state.levelIdx];
-  state.stars[lvl.id] = 3;   // earning a level = 3 stars (no drift penalty in rep model)
+  let avg = 0;
+  if (state.objAccuracies.length) {
+    let sum = 0;
+    for (let i = 0; i < state.objAccuracies.length; i++) sum += state.objAccuracies[i];
+    avg = sum / state.objAccuracies.length;
+  }
+  const stars = (typeof MC2_accuracyToStars === 'function') ? MC2_accuracyToStars(avg) : 0;
+  if ((state.stars[lvl.id] || 0) < stars) state.stars[lvl.id] = stars;
   saveStars();
 
-  lcStarsEl.textContent  = '★ ★ ★';
-  lcTitle.textContent    = lvl.isFinal ? 'Tutorial Complete!' : 'Level Complete!';
-  lcSubEl.textContent    = lvl.isFinal
-    ? "You've practiced every skill. Tap Continue to start free practice in Play mode."
-    : `You nailed ${lvl.reps} reps of ${lvl.title.toLowerCase()}. Press Continue when ready.`;
+  const accPct = Math.round(avg * 100);
+  lcStarsEl.textContent  = '★ ★ ★ ☆ ☆ ☆'.split(' ').slice(0, 3).map(function (_, i) {
+    return i < stars ? '★' : '☆';
+  }).join('');
+  lcTitle.textContent = lvl.isFinal ? 'Tutorial Complete!' : 'Level Complete!';
+  lcSubEl.textContent = lvl.isFinal
+    ? 'Tap Continue to start free practice in Play mode.\nAccuracy: ' + accPct + '%'
+    : 'Average accuracy: ' + accPct + '%\n' +
+      (stars === 3 ? 'Excellent!' : stars === 2 ? 'Solid — try for 3 stars next round.' :
+       stars === 1 ? 'Got it. Practice for tighter accuracy.' :
+       'A bit off — try again to raise your score.');
   lcContinueBtn.textContent = lvl.isFinal ? 'Enter Play mode →' : 'Continue →';
   lcOverlay.classList.remove('hidden');
   MC2Audio.levelComplete();
 }
 
-// Continue button on the level-complete overlay
 function onContinue() {
   lcOverlay.classList.add('hidden');
   state.paused = false;
   const lvl = MC2_LEVELS[state.levelIdx];
   if (lvl.isFinal) {
-    // After the tutorial: drop straight into Play mode
     startPlay({ keepCamera: true });
     return;
   }
@@ -879,49 +943,73 @@ function onContinue() {
 function skipLevel() {
   if (state.paused) return;
   if (state.mode !== MODE.TUTORIAL) return;
-  // Skipping a level still shows the level-complete pop so the flow is consistent.
-  // (User explicitly chose to skip; star not awarded for skipped levels.)
-  state.repsDone = MC2_LEVELS[state.levelIdx].reps;
+  // Skipping a level still shows the level-complete pop. No accuracy recorded
+  // for skipped objectives → 0 stars.
+  state.objIdx = state.objectives.length;
   showLevelComplete();
 }
 
 // ============================================================================
-// Live readouts
+// Live readouts — bottom feedback strip
 // ============================================================================
-function renderReadouts(types, pose, result) {
+function renderReadouts(types, pose, result, obj) {
   if (!types || !types.length) { liveReadouts.innerHTML = ''; return; }
   const items = [];
-  const lvl = MC2_LEVELS[state.levelIdx];
-
-  for (const t of types) {
+  for (let i = 0; i < types.length; i++) {
+    const t = types[i];
     if (t === 'aim') {
-      const r = pose ? Math.hypot(pose.aimLocal.x, pose.aimLocal.y) : null;
-      const ok = r != null && r <= MC2_TUNING.aimRadiusCm;
-      items.push(readoutEl('AIM',  r != null ? `${r.toFixed(1)} cm` : '—', r == null ? 'bad' : ok ? 'ok' : 'warn'));
+      // For L1: distance from current target spot
+      const tx = obj && obj.targetX != null ? obj.targetX : 0;
+      const ty = obj && obj.targetY != null ? obj.targetY : 0;
+      const d = pose ? Math.hypot(pose.aimLocal.x - tx, pose.aimLocal.y - ty) : null;
+      const ok = d != null && d <= MC2_TUNING.aimL1LockRadiusCm;
+      items.push(readoutEl('TARGET',
+        d != null ? d.toFixed(1) + ' cm' : '—',
+        d == null ? 'bad' : ok ? 'ok' : 'warn'));
     } else if (t === 'offset') {
       const r = pose ? Math.hypot(pose.aimLocal.x, pose.aimLocal.y) : null;
-      const ok = r != null && r <= MC2_TUNING.centerRadiusCm;
-      items.push(readoutEl('OFF',  r != null ? `${r.toFixed(1)} cm` : '—', r == null ? 'bad' : ok ? 'ok' : 'warn'));
+      const ok = r != null && r <= 4.0;
+      items.push(readoutEl('OFF',
+        r != null ? r.toFixed(1) + ' cm' : '—',
+        r == null ? 'bad' : ok ? 'ok' : 'warn'));
     } else if (t === 'tilt') {
       const v = pose ? pose.tiltDeg : null;
-      const ok = v != null && v <= MC2_TUNING.perpTiltDeg;
-      items.push(readoutEl('TILT', v != null ? `${v.toFixed(1)}°` : '—', v == null ? 'bad' : ok ? 'ok' : 'warn'));
+      const targ = obj && obj.targetTilt != null ? obj.targetTilt : 0;
+      const ok = v != null && Math.abs(v - targ) <= (obj && obj.tolDeg ? obj.tolDeg : MC2_TUNING.perpTiltLockDeg);
+      const label = (obj && obj.targetTilt != null && obj.targetTilt > 0) ? 'TILT→' + targ + '°' : 'TILT';
+      items.push(readoutEl(label,
+        v != null ? v.toFixed(1) + '°' : '—',
+        v == null ? 'bad' : ok ? 'ok' : 'warn'));
     } else if (t === 'sid') {
       const v = pose ? pose.sidCm : null;
-      const err = v != null ? Math.abs(v - MC2_TUNING.sidTargetCm) : null;
-      const ok = err != null && err <= MC2_TUNING.sidToleranceCm;
-      items.push(readoutEl('SID', v != null ? `${v.toFixed(0)} cm` : '—', v == null ? 'bad' : ok ? 'ok' : 'warn'));
+      const targ = obj && obj.targetSid != null ? obj.targetSid : MC2_TUNING.finalSidTargetCm;
+      const ok = v != null && Math.abs(v - targ) <= MC2_TUNING.sidLockTolCm;
+      const label = (obj && obj.targetSid != null) ? 'SID→' + targ : 'SID';
+      items.push(readoutEl(label,
+        v != null ? v.toFixed(0) + ' cm' : '—',
+        v == null ? 'bad' : ok ? 'ok' : 'warn'));
     } else if (t === 'ssd') {
       const v = pose ? (pose.sidCm - MC2_TUNING.patientThicknessCm) : null;
       const ok = v != null && v >= MC2_TUNING.ssdMinCm;
-      items.push(readoutEl('SSD', v != null ? `${v.toFixed(0)} cm` : '—', v == null ? 'bad' : ok ? 'ok' : 'warn'));
+      items.push(readoutEl('SSD',
+        v != null ? v.toFixed(0) + ' cm' : '—',
+        v == null ? 'bad' : ok ? 'ok' : 'warn'));
+    } else if (t === 'collim') {
+      // current vs target collimator %
+      const cur = pose && pose.half ? Math.round((pose.fieldHalf / pose.half) * 100) : null;
+      const targ = obj && obj.targetPct != null ? Math.round(obj.targetPct * 100) : null;
+      const err = (cur != null && targ != null) ? Math.abs(cur - targ) : null;
+      const ok = err != null && err <= 7;
+      items.push(readoutEl('COLLIM→' + (targ != null ? targ + '%' : ''),
+        cur != null ? cur + '%' : '—',
+        cur == null ? 'bad' : ok ? 'ok' : 'warn'));
     }
   }
   liveReadouts.innerHTML = items.join('');
 }
 
 function readoutEl(label, val, cls) {
-  return `<div class="readout ${cls}"><span class="lbl">${label}</span>${val}</div>`;
+  return '<div class="readout ' + cls + '"><span class="lbl">' + label + '</span>' + val + '</div>';
 }
 
 // ============================================================================
@@ -929,39 +1017,35 @@ function readoutEl(label, val, cls) {
 // ============================================================================
 function loadStars() {
   try { return JSON.parse(localStorage.getItem('mc2v2-stars')) || {}; }
-  catch(_) { return {}; }
+  catch (_) { return {}; }
 }
 function saveStars() {
-  try { localStorage.setItem('mc2v2-stars', JSON.stringify(state.stars)); } catch(_) {}
+  try { localStorage.setItem('mc2v2-stars', JSON.stringify(state.stars)); } catch (_) {}
 }
 function renderTileStars() {
-  let total = 0, possible = 3 * MC2_LEVELS.length;
+  let total = 0;
+  const possible = 3 * MC2_LEVELS.length;
   for (const lvl of MC2_LEVELS) total += (state.stars[lvl.id] || 0);
-  if (total === 0) {
-    tileStars.textContent = '';
-  } else {
-    tileStars.textContent = `★ ${total} / ${possible}`;
-  }
+  tileStars.textContent = total === 0 ? '' : ('★ ' + total + ' / ' + possible);
 }
-
 function loadCameraProfile() {
   try {
     const id = localStorage.getItem('mc2v2-cam-profile');
-    if (id && MC2_CAMERA_PROFILES.find(p => p.id === id)) return id;
-  } catch(_) {}
-  return MC2_CAMERA_PROFILES[0].id;
+    if (id && Array.isArray(MC2_CAMERA_PROFILES) && MC2_CAMERA_PROFILES.find(p => p.id === id)) return id;
+  } catch (_) {}
+  return (Array.isArray(MC2_CAMERA_PROFILES) && MC2_CAMERA_PROFILES[0] && MC2_CAMERA_PROFILES[0].id) || 'default';
 }
 function getCameraProfile() {
-  return MC2_CAMERA_PROFILES.find(p => p.id === state.cameraProfileId) || MC2_CAMERA_PROFILES[0];
+  return (Array.isArray(MC2_CAMERA_PROFILES) && MC2_CAMERA_PROFILES.find(p => p.id === state.cameraProfileId)) || (MC2_CAMERA_PROFILES && MC2_CAMERA_PROFILES[0]);
 }
 function applyCameraProfile() {
   const p = getCameraProfile();
-  SETTINGS.focalRel = p.focalRel;
+  if (p && p.focalRel) SETTINGS.focalRel = p.focalRel;
 }
 function setCameraProfile(id) {
   state.cameraProfileId = id;
   applyCameraProfile();
-  try { localStorage.setItem('mc2v2-cam-profile', id); } catch(_) {}
+  try { localStorage.setItem('mc2v2-cam-profile', id); } catch (_) {}
 }
 
 // ============================================================================
@@ -1024,9 +1108,7 @@ routePlay.addEventListener('click', function () {
   try { MC2Audio.unlock(); } catch (e) { mc2Status('Audio unlock failed: ' + e, 'error'); }
   try { startPlay(); } catch (e) { mc2Status('startPlay threw: ' + (e && e.message), 'error'); }
 });
-backBtn.addEventListener('click', function () {
-  showStartScreen();
-});
+backBtn.addEventListener('click', function () { showStartScreen(); });
 muteBtn.addEventListener('click', function () {
   const m = !MC2Audio.isMuted();
   MC2Audio.setMuted(m);
@@ -1034,7 +1116,6 @@ muteBtn.addEventListener('click', function () {
 });
 skipBtn.addEventListener('click', skipLevel);
 
-// Play-mode HUD controls (kV / mAs / mode tap-zones)
 document.querySelectorAll('[data-act]').forEach(function (el) {
   el.addEventListener('click', function (e) {
     if (state.mode !== MODE.PLAY) return;
@@ -1056,8 +1137,7 @@ document.querySelectorAll('[data-act]').forEach(function (el) {
 });
 updateKvMasFills();
 
-// EXPOSE button — locks a tutorial rep, or fires Play-mode shutter
-triggerBtn.addEventListener("click", function () {
+triggerBtn.addEventListener('click', function () {
   if (state.mode === MODE.TUTORIAL) {
     tryLockRep();
     return;
@@ -1081,9 +1161,7 @@ function stepArr(arr, val, dir) {
   return arr[j];
 }
 
-// Camera profile picker (start screen). Options are static in HTML so they
-// show even if this script doesn't reach this point. Here we sync the saved
-// selection and bind change.
+// Camera profile picker — options are static in HTML; we sync the saved value.
 if (camProfileSel) {
   if (camProfileSel.options.length === 0 && Array.isArray(MC2_CAMERA_PROFILES)) {
     for (const p of MC2_CAMERA_PROFILES) {
