@@ -20,9 +20,8 @@ function mc2Status(msg, kind) {
       bar.addEventListener('click', function () { bar.style.display = 'none'; });
       document.body && document.body.appendChild(bar);
     }
-    bar.style.background = kind === 'error' ? '#ff4757'
-                          : kind === 'info'  ? '#077B51'
-                          : '#3a3f4b';
+    // Only one kind exists now: errors (red).  No green/info banners.
+    bar.style.background = '#ff4757';
     bar.style.display = 'block';
     bar.textContent = msg;
   } catch (_) {}
@@ -110,7 +109,7 @@ const triggerBtn    = document.getElementById('trigger');
 
 // ---- Settings (fixed; no scale input — printed cards are 9 cm) ----
 const SETTINGS = {
-  qrPhysicalCm: 9.0,
+  qrPhysicalCm: 5.0,    // printed marker size in cm — see assets/qr-target-5cm.pdf
   activeAreaCm: 21.35,
   cassetteImgActiveFrac: 0.36,
   cassetteImgActiveCx:   0.485,
@@ -1315,6 +1314,9 @@ function loop(t) {
 function enterApp() {
   startScreen.classList.add('hidden');
   appShell.classList.remove('hidden');
+  // Hide any leftover error banner when entering the app shell.
+  const bar = document.getElementById('mc2-error-bar');
+  if (bar) bar.style.display = 'none';
   requestAnimationFrame(function () {
     resizeCanvas();
     if (!state.running) startCamera();
