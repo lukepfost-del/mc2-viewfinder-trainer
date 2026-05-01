@@ -198,13 +198,14 @@ let cornerFilters = makeCornerFilters();
 const sidFilter   = new OneEuro(0.8, 0.02, 1.0);
 const tiltFilter  = new OneEuro(0.8, 0.02, 1.0);
 // Per-axis tilt has its own filters — the magnitude alone isn't enough to
-// stabilize the outer-crosshair direction near perpendicular.
-const tiltXFilter = new OneEuro(1.0, 0.04, 1.0);
-const tiltYFilter = new OneEuro(1.0, 0.04, 1.0);
+// stabilize the inner-crosshair direction near perpendicular.  Lower min
+// cutoffs make the smoothing more aggressive (less jitter, more lag).
+const tiltXFilter = new OneEuro(0.4, 0.02, 1.0);
+const tiltYFilter = new OneEuro(0.4, 0.02, 1.0);
 // Roll is a circular quantity; smooth via sin/cos so it can't jump at
 // the +π/-π wrap point.
-const rollSinFilter = new OneEuro(1.0, 0.04, 1.0);
-const rollCosFilter = new OneEuro(1.0, 0.04, 1.0);
+const rollSinFilter = new OneEuro(0.6, 0.02, 1.0);
+const rollCosFilter = new OneEuro(0.6, 0.02, 1.0);
 
 // ============================================================================
 // Camera + canvas resize
@@ -801,22 +802,25 @@ function drawScene() {
     crosshair.style.transform =
       `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
 
-    // Crosshair behavior — mirrors the device's TiltGuideOverlay::render:
-    //   * The OUTER arms (external-cross) are anchored at a fixed ringRadius
-    //     around the beam intersection.  They DON'T move with tilt.
-    //   * The inner "+" (center-cross) is drawn at `center + tilt` — it
-    //     slides AWAY from the anchor in the tilt direction.
-    //   * Magnitude is clamped so the "+" always stays inside the outer
-    //     cross footprint, so the two glyphs read as a single guide.
-    //   * Below the snap angle (5°) the offset is zero and they merge into
-    //     a single unified cross — the "completed" state.
-    const SNAP_DEG = 5.0;
-    const tiltScalePx = Math.min(W, H) * 0.008;       // px per degree (gentle)
-    const maxRadiusPx = Math.min(W, H) * 0.05;        // cap separation
+    // Crosshair behavior — mirrors device TiltGuideOverlay::render but tighter.
+    // Outer arms (external-cross) stay anchored at the beam intersection.
+    // Inner "+" slides in the tilt direction by a small amount, hard-clamped
+    // so the two glyphs always read as a single guide.
+    //
+    // Skip the tilt offset entirely when the external cross is hidden
+    // (Levels 1 "aim" and 2 "collim" — only the inner "+" is visible there,
+    // so a moving inner cross would feel buggy with no anchor to relate to).
+    const SNAP_DEG     = 5.0;
+    const tiltScalePx  = Math.min(W, H) * 0.0035;   // ~1.5 px/° at 420 px vf
+    const maxRadiusPx  = Math.min(W, H) * 0.020;    // ~8 px hard cap
     const tx = (p.tiltVec && p.tiltVec.x) || 0;
     const ty = (p.tiltVec && p.tiltVec.y) || 0;
+
+    const lvlNow = (state.mode === MODE.TUTORIAL) ? MC2_LEVELS[state.levelIdx] : null;
+    const tiltVisible = !lvlNow || (lvlNow.id !== 'aim' && lvlNow.id !== 'collim');
+
     let cdx = 0, cdy = 0;
-    if (Math.abs(tx) >= SNAP_DEG || Math.abs(ty) >= SNAP_DEG) {
+    if (tiltVisible && (Math.abs(tx) >= SNAP_DEG || Math.abs(ty) >= SNAP_DEG)) {
       cdx = tx * tiltScalePx;
       cdy = ty * tiltScalePx;
       const mag = Math.hypot(cdx, cdy);
@@ -825,7 +829,6 @@ function drawScene() {
         cdx *= k; cdy *= k;
       }
     }
-    // Outer fixed at the beam intersection; inner slides in the tilt direction
     extCrossImg.style.transform = 'translate(-50%, -50%)';
     ctrCrossImg.style.transform =
       `translate(calc(-50% + ${cdx}px), calc(-50% + ${cdy}px))`;
