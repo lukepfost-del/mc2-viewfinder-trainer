@@ -82,9 +82,11 @@ const lcStarsEl     = document.getElementById('lc-stars');
 const lcTitle       = document.getElementById('lc-title');
 const lcSubEl       = document.getElementById('lc-sub');
 const lcContinueBtn = document.getElementById('lc-continue');
+const lcRetryBtn    = document.getElementById('lc-retry');
 const repDots       = document.getElementById('rep-dots');
 const feedbackLabel = document.getElementById('feedback-label');
 const camProfileSel = document.getElementById('camera-profile');
+const sidTargetMarker = document.getElementById('sid-target-marker');
 
 const kvValEl       = document.getElementById('kv-value');
 const masValEl      = document.getElementById('mas-value');
@@ -154,6 +156,7 @@ const state = {
   objIdx: 0,                 // current objective within the level
   objectives: [],            // built per-level via lvl.buildObjectives()
   objAccuracies: [],         // accuracy 0..1 per objective (stored on EXPOSE)
+  levelAccuracies: {},       // {levelId: avgAccuracy} — used for retry-weakest at end
   repArmed: false,           // is pose currently in spec? (drives button color)
   prevArmed: false,          // for arm-tick edge detection
   paused: false,             // true during level-complete overlay
@@ -555,28 +558,55 @@ function drawLevelTarget(l2s) {
     ctx.stroke();
   }
   else if (lvl.id === 'collim') {
-    // Ghost dashed rectangle showing target collimator size at cassette center.
-    const targetHalf = obj.targetPct * (MC2_TUNING && MC2_LEVELS[1] ? 0 : 0); // dummy
+    // Ghost dashed rectangle anchored to a specific edge of the active area.
+    // The actual field box always sits centered on the aim point and shrinks
+    // toward the active-area corner — so the dashed target shape mirrors that
+    // behavior, anchored to whichever edge corresponds to the objective's
+    // anchor direction.
     const half = state.pose ? state.pose.half : (21.35 / 2);
     const tHalf = obj.targetPct * half;
+    const offset = half - tHalf;
+    let cx = 0, cy = 0;
+    if (obj.anchor === 'right')  cx =  offset;
+    else if (obj.anchor === 'left')   cx = -offset;
+    else if (obj.anchor === 'top')    cy = -offset;
+    else if (obj.anchor === 'bottom') cy =  offset;
+    // 'center' → cx=cy=0
+
     const corners = [
-      { x: -tHalf, y: -tHalf }, { x: tHalf, y: -tHalf },
-      { x:  tHalf, y:  tHalf }, { x:-tHalf, y:  tHalf },
+      { x: cx - tHalf, y: cy - tHalf }, { x: cx + tHalf, y: cy - tHalf },
+      { x: cx + tHalf, y: cy + tHalf }, { x: cx - tHalf, y: cy + tHalf },
     ].map(function (p) { return localToScreen(p.x, p.y); });
+
+    // On-target tint feedback: green when aim is close, amber otherwise.
+    const aimErr = state.pose
+      ? Math.hypot(state.pose.aimLocal.x - cx, state.pose.aimLocal.y - cy)
+      : Infinity;
+    const onTarget = aimErr <= 2.5;
     ctx.setLineDash([8, 6]);
-    ctx.strokeStyle = COLORS.amber;
+    ctx.strokeStyle = onTarget ? COLORS.green : COLORS.amber;
     ctx.lineWidth = 3;
     ctx.beginPath();
     corners.forEach(function (p, i) { i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y); });
     ctx.closePath();
     ctx.stroke();
-    // Label the target % at the bottom of the ghost rect
-    const pct = Math.round(obj.targetPct * 100) + '%';
+
+    // Aim crosshair at target center to make the destination obvious
+    const center = localToScreen(cx, cy);
     ctx.setLineDash([]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = onTarget ? COLORS.green : COLORS.amber;
+    ctx.beginPath();
+    ctx.moveTo(center.x - 6, center.y); ctx.lineTo(center.x + 6, center.y);
+    ctx.moveTo(center.x, center.y - 6); ctx.lineTo(center.x, center.y + 6);
+    ctx.stroke();
+
+    // Label "Target XX%"
+    const pct = Math.round(obj.targetPct * 100) + '%';
     ctx.font = 'bold 12px -apple-system, system-ui, sans-serif';
-    ctx.fillStyle = COLORS.amber;
+    ctx.fillStyle = onTarget ? COLORS.green : COLORS.amber;
     ctx.textAlign = 'center';
-    ctx.fillText('Target ' + pct, corners[2].x === corners[3].x ? (corners[2].x + corners[3].x) / 2 : (corners[2].x + corners[3].x) / 2, corners[2].y + 16);
+    ctx.fillText('Target ' + pct, center.x, center.y - tHalf * l2s.scale - 6);
   }
 
   ctx.restore();
@@ -596,6 +626,18 @@ function updateSidGauge(sidCm, ok) {
   sidReadout.textContent = sidCm.toFixed(0);
   sidReadout.classList.toggle('good', ok);
   sidReadout.classList.toggle('bad', !ok);
+}
+
+// Position the L4 target marker on the SID gauge.  topPct math mirrors the
+// updateSidGauge mapping so the user can visually compare actual vs target.
+function updateSidTargetMarker(targetSid, hit) {
+  if (!sidTargetMarker) return;
+  if (!Number.isFinite(targetSid)) { sidTargetMarker.classList.add('hidden'); return; }
+  const t = Math.max(0, Math.min(1, (targetSid - 30) / (80 - 30)));
+  const topPct = 73.61 - t * (73.61 - 31.94);
+  sidTargetMarker.style.top = (topPct - 1.5 / 2) + '%';
+  sidTargetMarker.classList.remove('hidden');
+  sidTargetMarker.classList.toggle('hit', !!hit);
 }
 
 function updateKvMasFills() {
@@ -742,6 +784,8 @@ function drawScene() {
 function startTutorial() {
   state.mode = MODE.TUTORIAL;
   state.levelIdx = 0;
+  state.levelAccuracies = {};
+  if (lcRetryBtn) lcRetryBtn.classList.add('hidden');
   state.repsDone = 0;
   state.repArmed = false;
   state.awaitingReset = false;
@@ -864,6 +908,14 @@ function tickTutorial(_dtMs) {
   // Live readouts — augment with current objective context
   renderReadouts(lvl.readouts, state.pose, result, obj);
 
+  // L4: position the SID target marker on the gauge so users can visually
+  // line the live SID pill up with the target tick.
+  if (lvl.id === 'sid' && obj && obj.targetSid != null) {
+    updateSidTargetMarker(obj.targetSid, !!result.ok);
+  } else if (sidTargetMarker) {
+    sidTargetMarker.classList.add('hidden');
+  }
+
   // Update arm state
   state.repArmed = !!result.ok;
   if (result.ok && !state.prevArmed) MC2Audio.armTick();
@@ -950,18 +1002,60 @@ function showLevelComplete() {
   if ((state.stars[lvl.id] || 0) < stars) state.stars[lvl.id] = stars;
   saveStars();
 
+  // Track per-level accuracy for the end-of-tutorial retry-weakest prompt.
+  state.levelAccuracies[lvl.id] = avg;
+
   const accPct = Math.round(avg * 100);
   lcStarsEl.textContent  = '★ ★ ★ ☆ ☆ ☆'.split(' ').slice(0, 3).map(function (_, i) {
     return i < stars ? '★' : '☆';
   }).join('');
+
+  // On the final level, look across all level accuracies and surface a
+  // "Retry weakest" option if any level scored below the threshold.
+  let weakest = null;
+  if (lvl.isFinal) {
+    const RETRY_THRESHOLD = 0.70;
+    let minAcc = Infinity;
+    for (const L of MC2_LEVELS) {
+      const a = state.levelAccuracies[L.id];
+      if (typeof a === 'number' && a < minAcc) {
+        minAcc = a;
+        if (a < RETRY_THRESHOLD) weakest = L;
+      }
+    }
+  }
+
   lcTitle.textContent = lvl.isFinal ? 'Tutorial Complete!' : 'Level Complete!';
-  lcSubEl.textContent = lvl.isFinal
-    ? 'Tap Continue to start free practice in Play mode.\nAccuracy: ' + accPct + '%'
-    : 'Average accuracy: ' + accPct + '%\n' +
+  if (lvl.isFinal) {
+    if (weakest) {
+      lcSubEl.textContent =
+        'Average accuracy on this level: ' + accPct + '%\n' +
+        'You looked least sure on "' + weakest.title + '" — want another pass at it?';
+    } else {
+      lcSubEl.textContent =
+        'Solid run! Tap Continue to start free practice in Play mode.\n' +
+        'Accuracy: ' + accPct + '%';
+    }
+  } else {
+    lcSubEl.textContent = 'Average accuracy: ' + accPct + '%\n' +
       (stars === 3 ? 'Excellent!' : stars === 2 ? 'Solid — try for 3 stars next round.' :
        stars === 1 ? 'Got it. Practice for tighter accuracy.' :
        'A bit off — try again to raise your score.');
+  }
+
   lcContinueBtn.textContent = lvl.isFinal ? 'Enter Play mode →' : 'Continue →';
+
+  if (lcRetryBtn) {
+    if (weakest) {
+      lcRetryBtn.textContent = 'Retry: ' + weakest.title;
+      lcRetryBtn.dataset.retryLevelId = weakest.id;
+      lcRetryBtn.classList.remove('hidden');
+    } else {
+      lcRetryBtn.classList.add('hidden');
+      lcRetryBtn.dataset.retryLevelId = '';
+    }
+  }
+
   lcOverlay.classList.remove('hidden');
   MC2Audio.levelComplete();
 }
@@ -1191,6 +1285,17 @@ triggerBtn.addEventListener('click', function () {
 });
 
 if (lcContinueBtn) lcContinueBtn.addEventListener('click', onContinue);
+if (lcRetryBtn) lcRetryBtn.addEventListener('click', function () {
+  const id = lcRetryBtn.dataset.retryLevelId;
+  if (!id) return;
+  const idx = MC2_LEVELS.findIndex(function (L) { return L.id === id; });
+  if (idx < 0) return;
+  lcOverlay.classList.add('hidden');
+  state.paused = false;
+  state.levelIdx = idx;
+  lcRetryBtn.classList.add('hidden');
+  setLevelUI();
+});
 
 function stepArr(arr, val, dir) {
   const i = arr.indexOf(val);

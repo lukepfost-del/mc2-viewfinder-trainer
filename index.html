@@ -106,6 +106,8 @@
     <span id="mode-value" class="value-overlay">DDR</span>
 
     <div id="sid-readout">--</div>
+    <!-- Tutorial L4: target SID marker on the gauge bar -->
+    <div id="sid-target-marker" class="hidden"></div>
 
     <!-- Crosshair group: outer + center translate together -->
     <div id="crosshair">
@@ -127,6 +129,7 @@
       <div class="lc-stars" id="lc-stars"></div>
       <div class="lc-title" id="lc-title">Level Complete!</div>
       <div class="lc-sub" id="lc-sub"></div>
+      <button class="lc-retry hidden" id="lc-retry">Retry weakest</button>
       <button class="lc-continue" id="lc-continue">Continue &rarr;</button>
     </div>
 
@@ -159,7 +162,6 @@
 
 </div>
 
-<!-- js-aruco2 (vendored locally for offline / no-CDN reliability) -->
 <script src="assets/cv.js"></script>
 <script src="assets/aruco.js"></script>
 <script src="assets/aruco-dict.js"></script>

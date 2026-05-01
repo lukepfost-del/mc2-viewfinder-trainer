@@ -122,7 +122,14 @@ const LEVELS = [
     layer:    'center',
     readouts: ['collim'],
     buildObjectives: function () {
-      return TUNING.collimTargets.map(function (pct) { return { targetPct: pct }; });
+      // Each target box is anchored to a specific edge of the active area
+      // — that's how the field actually behaves when the aim is off-center.
+      // Order: small-right, medium-top, full-center (the user's "last is largest").
+      return [
+        { targetPct: TUNING.collimTargets[0], anchor: 'right'  },
+        { targetPct: TUNING.collimTargets[1], anchor: 'top'    },
+        { targetPct: TUNING.collimTargets[2], anchor: 'center' },
+      ];
     },
     evaluate: function (pose, obj) {
       if (!pose) return { ok: false, accuracy: 0, reason: 'no-cassette' };
@@ -130,15 +137,28 @@ const LEVELS = [
         return { ok: false, accuracy: 0, reason: 'off-cassette',
                  targetPct: obj.targetPct, actualPct: 0 };
       }
-      const actualPct = pose.fieldHalf / pose.half;   // 0..1
-      const errPct = Math.abs(actualPct - obj.targetPct);
-      const accuracy = Math.max(0, Math.min(1, 1 - errPct / TUNING.collimMissTolPct));
-      const ok = errPct <= TUNING.collimLockTolPct;
+      // Compute target center (where aim must land for the field to match
+      // the dashed box).
+      const half = pose.half;
+      const tHalf = obj.targetPct * half;
+      const offset = half - tHalf;     // how far aim sits from the cassette center
+      let tx = 0, ty = 0;
+      if (obj.anchor === 'right')  tx =  offset;
+      if (obj.anchor === 'left')   tx = -offset;
+      if (obj.anchor === 'top')    ty = -offset;
+      if (obj.anchor === 'bottom') ty =  offset;
+      // 'center' → tx=ty=0
+      const aimErr = Math.hypot(pose.aimLocal.x - tx, pose.aimLocal.y - ty);
+      const actualPct = pose.fieldHalf / half;
+      // Accuracy: 100% at zero aim error, 0% at 6 cm error
+      const accuracy = Math.max(0, Math.min(1, 1 - aimErr / 6));
+      const ok = aimErr <= 2.5;
       const reason = ok ? null
                         : (actualPct < obj.targetPct ? 'collim-too-small' : 'collim-too-big');
       return {
         ok: ok, accuracy: accuracy, reason: reason,
         targetPct: obj.targetPct, actualPct: actualPct,
+        targetX: tx, targetY: ty, aimErrCm: aimErr,
       };
     },
   },
