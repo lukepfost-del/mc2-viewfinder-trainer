@@ -1,101 +1,111 @@
-"""Generate qr-target.pdf with a 5 cm ArUco DICT_4X4_1000 ID 0 marker on letter paper."""
+"""Generate qr-target.pdf — clean, professional printable target for the trainer."""
+import io, os
 import cv2
 import cv2.aruco as aruco
+import qrcode
+import cairosvg
+from PIL import Image
 from reportlab.lib.pagesizes import LETTER
-from reportlab.lib.units import cm, mm
+from reportlab.lib.units import cm
+from reportlab.lib.colors import black, HexColor
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
-from reportlab.lib.colors import black, gray, red
-from PIL import Image
-import io, os
 
-OUT = "qr-target.pdf"
-PNG_OUT = "qr-target.png"
-MARKER_CM = 5.0
-ACTIVE_AREA_CM = 21.35   # cassette active area edge length (matches SETTINGS.activeAreaCm)
+OUT      = "qr-target.pdf"
+PNG_OUT  = "qr-target.png"
+LOGO_SVG = "assets/oxos-logo.svg"
+TRAINER_URL = "https://lukepfost-del.github.io/mc2-viewfinder-trainer/v2/"
+MARKER_CM = 6.0
 
-# 1. Generate ArUco marker bitmap
+# ArUco marker
 dictionary = aruco.getPredefinedDictionary(aruco.DICT_4X4_1000)
-img_size_px = 600
-marker_img = aruco.generateImageMarker(dictionary, 0, img_size_px)
-# Save the raw PNG as well (handy reference)
+marker_img = aruco.generateImageMarker(dictionary, 0, 720)
 cv2.imwrite(PNG_OUT, marker_img)
+marker_pil = Image.fromarray(marker_img).convert("RGB")
+marker_buf = io.BytesIO()
+marker_pil.save(marker_buf, format="PNG")
+marker_buf.seek(0)
 
-pil = Image.fromarray(marker_img).convert("RGB")
-buf = io.BytesIO()
-pil.save(buf, format="PNG")
-buf.seek(0)
+# OXOS logo (white SVG -> black PNG for print)
+with open(LOGO_SVG, "r", encoding="utf-8") as f:
+    svg_text = f.read()
+svg_text = svg_text.replace("#fff", "#000").replace("fill:#fff", "fill:#000")
+logo_png_bytes = cairosvg.svg2png(bytestring=svg_text.encode("utf-8"), output_width=900)
 
-# 2. Build the PDF
-W, H = LETTER  # in points (1 pt = 1/72 inch)
+# Access QR
+qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=2)
+qr.add_data(TRAINER_URL)
+qr.make(fit=True)
+qr_pil = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+qr_buf = io.BytesIO()
+qr_pil.save(qr_buf, format="PNG")
+qr_buf.seek(0)
+
+# PDF
+W, H = LETTER
 c = canvas.Canvas(OUT, pagesize=LETTER)
 
+# Logo
+logo_w = 4.4 * cm
+logo_h = logo_w * (101.25 / 464.07)
+logo_x = (W - logo_w) / 2
+logo_y = H - 1.6 * cm - logo_h
+c.drawImage(ImageReader(io.BytesIO(logo_png_bytes)),
+            logo_x, logo_y, logo_w, logo_h, preserveAspectRatio=True, mask='auto')
+
 # Title
-c.setFont("Helvetica-Bold", 16)
-c.drawCentredString(W/2, H - 1.2*cm, "MC2 Viewfinder Trainer — 5 cm QR Target")
-c.setFont("Helvetica", 10)
-c.drawCentredString(W/2, H - 1.7*cm, "Print at 100% scale (NOT 'fit to page'). Verify rulers below with a real ruler.")
-
-# Place the marker centered horizontally, top half of page
-marker_size_pt = MARKER_CM * cm
-mx = (W - marker_size_pt) / 2
-my = H - 8.5 * cm
-c.drawImage(ImageReader(io.BytesIO(buf.getvalue())), mx, my, marker_size_pt, marker_size_pt,
-            preserveAspectRatio=True, mask='auto')
-# Crop ticks at the marker corners so it's obvious where the marker boundary is
-c.setStrokeColor(red)
-c.setLineWidth(0.8)
-tick = 0.4 * cm
-for x, y in [(mx, my), (mx+marker_size_pt, my), (mx, my+marker_size_pt), (mx+marker_size_pt, my+marker_size_pt)]:
-    c.line(x - tick, y, x + tick, y)
-    c.line(x, y - tick, x, y + tick)
-
-# Label marker size
-c.setStrokeColor(black)
-c.setFont("Helvetica-Bold", 11)
-c.drawCentredString(W/2, my - 0.55*cm, f"{MARKER_CM:.0f} cm × {MARKER_CM:.0f} cm marker")
-
-# 3. Calibration ruler — 5 cm horizontal, below the marker
-ruler_w = MARKER_CM * cm
-ruler_x = (W - ruler_w) / 2
-ruler_y = my - 2.2*cm
-c.setLineWidth(1.2)
-c.line(ruler_x, ruler_y, ruler_x + ruler_w, ruler_y)
-# 1 cm major ticks
-for i in range(int(MARKER_CM) + 1):
-    x = ruler_x + i*cm
-    c.line(x, ruler_y - 0.15*cm, x, ruler_y + 0.15*cm)
-    c.setFont("Helvetica", 8)
-    c.drawCentredString(x, ruler_y - 0.45*cm, str(i))
-c.setFont("Helvetica", 9)
-c.drawCentredString(W/2, ruler_y + 0.45*cm, f"verify ruler is {MARKER_CM:.0f} cm")
-
-# 4. Active-area outline — dashed square representing cassette imaging area.
-# Letter paper is ~21.59 cm wide, active area 21.35 cm — just barely fits.
-aa_pt = ACTIVE_AREA_CM * cm
-aa_x = (W - aa_pt) / 2
-aa_y = my + (marker_size_pt - aa_pt) / 2   # vertically center on the marker
-c.setStrokeColor(gray)
-c.setDash(4, 4)
-c.setLineWidth(1)
-c.rect(aa_x, aa_y, aa_pt, aa_pt, stroke=1, fill=0)
-c.setDash()
-c.setStrokeColor(black)
-c.setFont("Helvetica", 8)
-c.setFillColor(gray)
-c.drawString(aa_x + 0.1*cm, aa_y + aa_pt + 0.1*cm,
-             f"Cassette active area ({ACTIVE_AREA_CM:.2f} cm)")
+title_y = logo_y - 0.9 * cm
 c.setFillColor(black)
+c.setFont("Helvetica-Bold", 18)
+c.drawCentredString(W / 2, title_y, "MC2 Viewfinder Trainer")
+c.setFont("Helvetica", 10.5)
+c.setFillColor(HexColor("#555555"))
+c.drawCentredString(W / 2, title_y - 0.55 * cm,
+                    "Practice aiming the MC2 emitter with your phone.")
 
-# 5. Footer with instructions
-y_foot = 2.5*cm
-c.setFont("Helvetica-Bold", 11)
-c.drawCentredString(W/2, y_foot + 1.0*cm, "How to use")
-c.setFont("Helvetica", 9.5)
-c.drawCentredString(W/2, y_foot + 0.4*cm,
-    "Lay this sheet flat. Open the trainer on your phone. Point camera at the marker.")
-c.drawCentredString(W/2, y_foot - 0.05*cm,
-    "Trainer expects exactly a 5 cm marker — make sure your printer didn't shrink the page.")
+# Centered marker
+marker_pt = MARKER_CM * cm
+mx = (W - marker_pt) / 2
+my = (H - marker_pt) / 2 - 0.4 * cm
+c.setFillColor(black)
+c.drawImage(ImageReader(marker_buf), mx, my, marker_pt, marker_pt,
+            preserveAspectRatio=True, mask='auto')
+
+# Footer: instructions left, QR right
+foot_top = my - 1.4 * cm
+qr_size = 3.2 * cm
+qr_x = W - 2.5 * cm - qr_size
+qr_y = foot_top - qr_size
+c.drawImage(ImageReader(qr_buf), qr_x, qr_y, qr_size, qr_size,
+            preserveAspectRatio=True, mask='auto')
+c.setFont("Helvetica-Bold", 9)
+c.setFillColor(black)
+c.drawCentredString(qr_x + qr_size / 2, qr_y - 0.45 * cm, "Open the trainer")
+c.setFont("Helvetica", 8)
+c.setFillColor(HexColor("#666666"))
+c.drawCentredString(qr_x + qr_size / 2, qr_y - 0.85 * cm, "(scan with your phone)")
+
+inst_x = 2.5 * cm
+inst_y = foot_top - 0.2 * cm
+c.setFillColor(black)
+c.setFont("Helvetica-Bold", 12)
+c.drawString(inst_x, inst_y, "How to use")
+c.setFont("Helvetica", 10.5)
+c.setFillColor(HexColor("#333333"))
+lines = [
+    "1.  Lay this page flat on a table.",
+    "2.  Open the trainer (scan the QR on the right).",
+    "3.  Allow camera access when prompted.",
+    "4.  Point your phone at the marker like the MC2 emitter.",
+    "5.  Tap Tutorial to learn, or Play to free-practice.",
+]
+for i, ln in enumerate(lines):
+    c.drawString(inst_x, inst_y - 0.7 * cm - i * 0.55 * cm, ln)
+
+c.setFont("Helvetica", 8)
+c.setFillColor(HexColor("#888888"))
+c.drawCentredString(W / 2, 1.3 * cm,
+    f"ArUco DICT_4X4_1000 ID 0  -  marker {MARKER_CM:.0f} cm x {MARKER_CM:.0f} cm  -  OXOS Medical")
 
 c.showPage()
 c.save()

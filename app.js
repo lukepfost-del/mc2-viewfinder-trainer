@@ -109,7 +109,7 @@ const triggerBtn    = document.getElementById('trigger');
 
 // ---- Settings (fixed; no scale input — printed cards are 9 cm) ----
 const SETTINGS = {
-  qrPhysicalCm: 5.0,    // printed marker size in cm — see assets/qr-target-5cm.pdf
+  qrPhysicalCm: 6.0,    // printed marker size in cm — must match qr-target.pdf
   activeAreaCm: 21.35,
   cassetteImgActiveFrac: 0.36,
   cassetteImgActiveCx:   0.485,
@@ -1451,3 +1451,4 @@ if (camProfileSel) {
 
 applyCameraProfile();
 showStartScreen();
+
