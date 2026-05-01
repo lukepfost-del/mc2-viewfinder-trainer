@@ -776,26 +776,34 @@ function drawScene() {
     crosshair.style.transform =
       `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
 
-    // Per-axis tilt offset for the external cross.  Below the snap angle
-    // the outer arms sit ON the center cross (looks like a single
-    // unified crosshair).  Above snap, the outer slides AWAY from the
-    // center IN THE OPPOSITE DIRECTION of the tilt — matching how the
-    // actual device behaves: tilt the phone right, outer cross goes left
-    // relative to the inner.  Snap angle 5° = device xr.general.tilt_snap_angle.
+    // Crosshair behavior — mirrors the device's TiltGuideOverlay::render:
+    //   * The OUTER arms (external-cross) are anchored at a fixed ringRadius
+    //     around the beam intersection.  They DON'T move with tilt.
+    //   * The inner "+" (center-cross) is drawn at `center + tilt` — it
+    //     slides AWAY from the anchor in the tilt direction.
+    //   * Magnitude is clamped so the "+" always stays inside the outer
+    //     cross footprint, so the two glyphs read as a single guide.
+    //   * Below the snap angle (5°) the offset is zero and they merge into
+    //     a single unified cross — the "completed" state.
     const SNAP_DEG = 5.0;
-    const tiltScalePx = Math.min(W, H) * 0.012;   // ~5 px/° at a 420 px viewfinder
+    const tiltScalePx = Math.min(W, H) * 0.008;       // px per degree (gentle)
+    const maxRadiusPx = Math.min(W, H) * 0.05;        // cap separation
     const tx = (p.tiltVec && p.tiltVec.x) || 0;
     const ty = (p.tiltVec && p.tiltVec.y) || 0;
-    let extDx = 0, extDy = 0;
+    let cdx = 0, cdy = 0;
     if (Math.abs(tx) >= SNAP_DEG || Math.abs(ty) >= SNAP_DEG) {
-      // Negative sign: outer cross slides opposite the tilt vector.
-      extDx = -tx * tiltScalePx;
-      extDy = -ty * tiltScalePx;
+      cdx = tx * tiltScalePx;
+      cdy = ty * tiltScalePx;
+      const mag = Math.hypot(cdx, cdy);
+      if (mag > maxRadiusPx) {
+        const k = maxRadiusPx / mag;
+        cdx *= k; cdy *= k;
+      }
     }
-    extCrossImg.style.transform =
-      `translate(calc(-50% + ${extDx}px), calc(-50% + ${extDy}px))`;
-    // Center cross stays exactly at the parent #crosshair origin
-    ctrCrossImg.style.transform = 'translate(-50%, -50%)';
+    // Outer fixed at the beam intersection; inner slides in the tilt direction
+    extCrossImg.style.transform = 'translate(-50%, -50%)';
+    ctrCrossImg.style.transform =
+      `translate(calc(-50% + ${cdx}px), calc(-50% + ${cdy}px))`;
 
     // HUD readouts (Play mode + final tutorial level)
     const ssdCm = p.sidCm - SETTINGS.patientThicknessCm;
