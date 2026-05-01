@@ -195,8 +195,16 @@ function makeCornerFilters() {
   }));
 }
 let cornerFilters = makeCornerFilters();
-const sidFilter  = new OneEuro(0.8, 0.02, 1.0);
-const tiltFilter = new OneEuro(0.8, 0.02, 1.0);
+const sidFilter   = new OneEuro(0.8, 0.02, 1.0);
+const tiltFilter  = new OneEuro(0.8, 0.02, 1.0);
+// Per-axis tilt has its own filters — the magnitude alone isn't enough to
+// stabilize the outer-crosshair direction near perpendicular.
+const tiltXFilter = new OneEuro(1.0, 0.04, 1.0);
+const tiltYFilter = new OneEuro(1.0, 0.04, 1.0);
+// Roll is a circular quantity; smooth via sin/cos so it can't jump at
+// the +π/-π wrap point.
+const rollSinFilter = new OneEuro(1.0, 0.04, 1.0);
+const rollCosFilter = new OneEuro(1.0, 0.04, 1.0);
 
 // ============================================================================
 // Camera + canvas resize
@@ -373,14 +381,15 @@ function tiltFromH(H, fx, fy, cx, cy) {
     r1n[0]*r2n[1]-r1n[1]*r2n[0],
   ];
   const nlen = Math.hypot(n[0],n[1],n[2]) || 1;
-  const nx = n[0]/nlen, ny = n[1]/nlen, nz = n[2]/nlen;
-  const nzAbs = Math.abs(nz);
-  const deg = Math.acos(Math.max(0, Math.min(1, nzAbs))) * 180 / Math.PI;
-  // Per-axis: arctan(component / forward) — sign reflects direction.  Use
-  // signed nz so the perpendicular pole is consistent.
-  const sgn = nz >= 0 ? 1 : -1;
-  const tiltX = Math.atan2(sgn * nx, nzAbs) * 180 / Math.PI;
-  const tiltY = Math.atan2(sgn * ny, nzAbs) * 180 / Math.PI;
+  let nx = n[0]/nlen, ny = n[1]/nlen, nz = n[2]/nlen;
+  // Force the cassette-plane normal to point AT the camera (nz > 0).  Without
+  // this the cross product can come out either way and the per-axis tilt
+  // sign jitters around perpendicular — visible as the outer crosshair
+  // teleporting to its mirror position.
+  if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+  const deg = Math.acos(Math.max(0, Math.min(1, nz))) * 180 / Math.PI;
+  const tiltX = Math.atan2(nx, nz) * 180 / Math.PI;
+  const tiltY = Math.atan2(ny, nz) * 180 / Math.PI;
   return { deg: deg, x: tiltX, y: tiltY };
 }
 
@@ -416,11 +425,12 @@ function buildPose(qr) {
   const t = performance.now();
   sidCm = sidFilter.filter(sidCm, t);
   tiltDeg = tiltFilter.filter(tiltDeg, t);
-  // Per-axis tilt (used for the device-style crosshair snap).  We don't
-  // smooth the per-axis components separately — the magnitude is smoothed
-  // above; the components ride the unsmoothed direction so the snap is
-  // responsive without lagging.
-  const tiltVec = { x: tiltAll.x, y: tiltAll.y };
+  // Per-axis tilt smoothed independently so the device-style crosshair snap
+  // doesn't jitter.
+  const tiltVec = {
+    x: tiltXFilter.filter(tiltAll.x, t),
+    y: tiltYFilter.filter(tiltAll.y, t),
+  };
 
   const aimImg = { x: state.frameW/2, y: state.frameH/2 };
   const aimLocal = applyH(H_img_to_l, aimImg.x, aimImg.y);
@@ -436,7 +446,12 @@ function buildPose(qr) {
 
   const dx = qrImg[1].x - qrImg[0].x;
   const dy = qrImg[1].y - qrImg[0].y;
-  const roll = Math.atan2(dy, dx);
+  const rawLen = Math.hypot(dx, dy) || 1;
+  // Smooth roll via sin/cos — atan2 wraps at ±π and can flip the cassette
+  // image orientation suddenly; smoothing in cartesian space avoids that.
+  const ss = rollSinFilter.filter(dy / rawLen, t);
+  const sc = rollCosFilter.filter(dx / rawLen, t);
+  const roll = Math.atan2(ss, sc);
 
   return {
     H_l_to_img, H_img_to_l, H_l_to_videoPx, H_videoPx_to_l,
@@ -694,17 +709,21 @@ function drawScene() {
     crosshair.style.transform =
       `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
 
-    // Per-axis tilt offset for the external cross.  Snap angle 5° matches
-    // device default (xr.general.tilt_snap_angle).  tiltScalePx tunes
-    // how far the cross slides per degree of tilt.
+    // Per-axis tilt offset for the external cross.  Below the snap angle
+    // the outer arms sit ON the center cross (looks like a single
+    // unified crosshair).  Above snap, the outer slides AWAY from the
+    // center IN THE OPPOSITE DIRECTION of the tilt — matching how the
+    // actual device behaves: tilt the phone right, outer cross goes left
+    // relative to the inner.  Snap angle 5° = device xr.general.tilt_snap_angle.
     const SNAP_DEG = 5.0;
-    const tiltScalePx = Math.min(W, H) * 0.012;   // ~5px/° at a 420px viewfinder
+    const tiltScalePx = Math.min(W, H) * 0.012;   // ~5 px/° at a 420 px viewfinder
     const tx = (p.tiltVec && p.tiltVec.x) || 0;
     const ty = (p.tiltVec && p.tiltVec.y) || 0;
     let extDx = 0, extDy = 0;
     if (Math.abs(tx) >= SNAP_DEG || Math.abs(ty) >= SNAP_DEG) {
-      extDx = tx * tiltScalePx;
-      extDy = ty * tiltScalePx;
+      // Negative sign: outer cross slides opposite the tilt vector.
+      extDx = -tx * tiltScalePx;
+      extDy = -ty * tiltScalePx;
     }
     extCrossImg.style.transform =
       `translate(calc(-50% + ${extDx}px), calc(-50% + ${extDy}px))`;
