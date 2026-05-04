@@ -121,6 +121,9 @@ const SETTINGS = {
   oeMinCutoff: 1.2, oeBeta: 0.04, oeDerivCutoff: 1.0,
   procMaxDim: 720,
   cassetteImgPx: 720,
+  // v19.1: only used as fallback before pose is locked.  When pose is locked,
+  // buildLocalToScreen derives scale from the marker's natural screen size
+  // so the cassette overlay scales naturally with SID.
   activeAreaScreenFrac: 0.33,
 };
 
@@ -550,28 +553,51 @@ function frameToScreenScale() {
 // without any per-overlay anchor tracking.
 function buildLocalToScreen(p) {
   const W = lcd.clientWidth, H = lcd.clientHeight;
-  const aaSide = SETTINGS.activeAreaScreenFrac * Math.min(W, H);
-  const scale = aaSide / SETTINGS.activeAreaCm;
-  // No roll term: the v19 video rectification un-rotates the marker so it
-  // lands axis-aligned in the viewfinder.  If we ALSO rolled the cassette
-  // overlay we'd counter-rotate against the warp.  The chrome around the
-  // viewfinder is fixed-orientation anyway, so axis-aligned is correct.
+
+  // Derive scale (cm → screen px) from the marker's natural screen size.
+  // This keeps the cassette overlay locked in sync with the warped marker:
+  // closer = both bigger, farther = both smaller — same as the device's
+  // unscaled rectification.  Falls back to activeAreaScreenFrac when we
+  // don't have marker-on-screen info (no pose yet).
+  let scale, aaSide;
+  const map = frameToScreenScale();
+  if (map && p.qrImg && p.qrImg.length === 4) {
+    const sc = p.qrImg.map(c => map(c));
+    let edgeSum = 0;
+    for (let i = 0; i < 4; i++) {
+      const a = sc[i], b = sc[(i + 1) % 4];
+      edgeSum += Math.hypot(b.x - a.x, b.y - a.y);
+    }
+    const markerSide = edgeSum / 4;
+    scale = markerSide / SETTINGS.qrPhysicalCm;
+    aaSide = scale * SETTINGS.activeAreaCm;
+  } else {
+    aaSide = SETTINGS.activeAreaScreenFrac * Math.min(W, H);
+    scale = aaSide / SETTINGS.activeAreaCm;
+  }
+
+  // Roll the cassette overlay by the marker's roll so it stays aligned with
+  // the printed page.  videoRectifyMatrix3d rolls its dst rect by the same
+  // angle, so warped marker + overlay rotate together — matching the device's
+  // getWarpMatrix(rvec, tvec, angle=roll) flow (Viewfinder.cpp passes
+  // vfEuler_.z, the camera roll).
+  const cosR = Math.cos(p.roll), sinR = Math.sin(p.roll);
   const cx = W / 2, cy = H / 2;
   const H_l_to_s = [
-    scale, 0,     cx,
-    0,     scale, cy,
-    0,     0,     1,
+    scale * cosR, -scale * sinR, cx,
+    scale * sinR,  scale * cosR, cy,
+    0,             0,            1,
   ];
   return { H_l_to_s, scale, cx, cy, W, H, aaSide };
 }
 
 // Build a screen-space homography that maps the marker's current screen
-// corners to a fixed axis-aligned target rect at the viewfinder center.
-// This effectively un-projects perspective (skew/tilt) AND un-rotates the
-// marker (since the marker's TL/TR/BR/BL corners go to the rect's TL/TR/BR/BL
-// corners regardless of the printed page's roll).  Equivalent to the
-// device's getWarpMatrix(rvec, tvec, angle=0) with referenceAnchorPoints
-// chosen as an axis-aligned square at viewfinder center.
+// corners to a target rect at the viewfinder center, ROTATED by the marker's
+// roll.  Mirrors the device's getWarpMatrix(rvec, tvec, angle=roll) flow
+// (Viewfinder.cpp passes vfEuler_.z = camera Z-axis Euler angle).  The warp
+// removes perspective (skew/tilt) but preserves marker rotation, so the
+// printed page can sit at any angle on the table and the cassette overlay
+// rotates with it — same as the real device.
 function videoRectifyMatrix3d(p) {
   const map = frameToScreenScale();
   if (!map || !p.qrImg || p.qrImg.length !== 4) return null;
@@ -581,21 +607,35 @@ function videoRectifyMatrix3d(p) {
   // Marker corners in screen px (current).  These are the source points.
   const src = p.qrImg.map(c => map(c));
 
-  // Target rect: a fixed square at LCD center sized to match the cassette
-  // active area's screen footprint.  The marker is SETTINGS.qrPhysicalCm wide,
-  // and the active area is SETTINGS.activeAreaCm wide, so the marker should
-  // map to a (qr/active) fraction of that square.
-  const aaSide = SETTINGS.activeAreaScreenFrac * Math.min(W, H);
-  const markerSide = aaSide * (SETTINGS.qrPhysicalCm / SETTINGS.activeAreaCm);
+  // Target rect: keep the marker at roughly its NATURAL screen size, so the
+  // warp removes perspective + recenters but doesn't zoom.  Scaling the
+  // target down would shrink the whole warped video (since the rest of the
+  // frame extends out from the marker in proportion), leaving black around
+  // it.  We use the average current screen edge length.
   const cx = W / 2, cy = H / 2;
+  let edgeSum = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = src[i], b = src[(i + 1) % 4];
+    edgeSum += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  const markerSide = edgeSum / 4;
   const half = markerSide / 2;
-  // Match the corner ordering used in buildPose (qrLocal): TL, TR, BR, BL
-  const dst = [
-    { x: cx - half, y: cy - half },
-    { x: cx + half, y: cy - half },
-    { x: cx + half, y: cy + half },
-    { x: cx - half, y: cy + half },
+  // Local axis-aligned corners (TL, TR, BR, BL — matches buildPose qrLocal).
+  const local = [
+    { x: -half, y: -half },
+    { x:  half, y: -half },
+    { x:  half, y:  half },
+    { x: -half, y:  half },
   ];
+  // Rotate by marker roll so the dst rect matches the printed page's
+  // orientation.  Marker corners and dst corners are now both rolled by
+  // the same angle, so the homography preserves roll and only removes
+  // perspective.  Result: the warped marker keeps its physical orientation.
+  const cosR = Math.cos(p.roll), sinR = Math.sin(p.roll);
+  const dst = local.map(pt => ({
+    x: cx + pt.x * cosR - pt.y * sinR,
+    y: cy + pt.x * sinR + pt.y * cosR,
+  }));
   return homography4(src, dst);
 }
 
