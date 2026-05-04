@@ -290,13 +290,66 @@ function detectQR() {
   if (!m) m = markers[0];
   if (!m || !m.corners || m.corners.length !== 4) return null;
 
+  // Sub-pixel corner refinement: js-aruco2 returns whole-pixel corners,
+  // so each has +/-0.5 px quantization noise.  Refining via OpenCV's
+  // cornerSubPix algorithm cuts that 5-10x and removes the residual jitter
+  // that One-Euro can only smooth, not eliminate.
   const rawCorners = m.corners.map(c => ({ x: c.x, y: c.y }));
+  const refined = rawCorners.map(c => refineCornerSubPix(imgData.data, w, h, c));
+
   const t = performance.now();
-  const smoothed = rawCorners.map((p, i) => ({
+  const smoothed = refined.map((p, i) => ({
     x: cornerFilters[i].x.filter(p.x, t),
     y: cornerFilters[i].y.filter(p.y, t),
   }));
   return { corners: smoothed, raw: rawCorners, id: m.id, t, scaleVid: 1/scale };
+}
+
+// OpenCV-style cornerSubPix.  For each pixel `p` in a small window around
+// the candidate corner `q`, the gradient G(p) at `p` should be perpendicular
+// to the displacement (p - q) for a true corner.  That gives the constraint
+//   G(p)^T · (p - q) = 0
+// summed over the window.  Solving for q yields a 2x2 linear system per
+// iteration (typically converges in 3-5 iterations).
+function refineCornerSubPix(rgba, w, h, corner, halfWin = 3, iterations = 5) {
+  const lum = (x, y) => {
+    if (x < 0 || x >= w || y < 0 || y >= h) return 0;
+    const i = (y * w + x) * 4;
+    return 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+  };
+  let qx = corner.x, qy = corner.y;
+  for (let iter = 0; iter < iterations; iter++) {
+    const cx = Math.round(qx), cy = Math.round(qy);
+    let A00 = 0, A01 = 0, A11 = 0, b0 = 0, b1 = 0;
+    for (let dy = -halfWin; dy <= halfWin; dy++) {
+      for (let dx = -halfWin; dx <= halfWin; dx++) {
+        const px = cx + dx, py = cy + dy;
+        if (px <= 0 || px >= w - 1 || py <= 0 || py >= h - 1) continue;
+        // Central-difference gradient
+        const gx = (lum(px + 1, py) - lum(px - 1, py)) * 0.5;
+        const gy = (lum(px, py + 1) - lum(px, py - 1)) * 0.5;
+        const m2 = gx*gx + gy*gy;
+        if (m2 < 4) continue; // ignore flat regions; threshold ~|grad|<2
+        A00 += gx * gx;
+        A01 += gx * gy;
+        A11 += gy * gy;
+        b0  += (gx * gx) * px + (gx * gy) * py;
+        b1  += (gx * gy) * px + (gy * gy) * py;
+      }
+    }
+    const det = A00 * A11 - A01 * A01;
+    if (Math.abs(det) < 1e-9) break;
+    const newQx = ( A11 * b0 - A01 * b1) / det;
+    const newQy = (-A01 * b0 + A00 * b1) / det;
+    // Reject runaway (refinement should never move >2*halfWin from raw)
+    if (Math.hypot(newQx - corner.x, newQy - corner.y) > halfWin * 2) break;
+    // Convergence
+    if (Math.hypot(newQx - qx, newQy - qy) < 0.02) {
+      qx = newQx; qy = newQy; break;
+    }
+    qx = newQx; qy = newQy;
+  }
+  return { x: qx, y: qy };
 }
 
 // ============================================================================
