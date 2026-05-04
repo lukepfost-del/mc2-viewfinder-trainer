@@ -535,38 +535,68 @@ function frameToScreenScale() {
   });
 }
 
-// Cassette overlay anchors to the ArUco's ACTUAL position in the camera
-// frame (AR-style tracking) rather than the viewfinder center.  This makes
-// aim feedback responsive to camera motion: panning the phone moves both
-// the live ArUco and the cassette overlay together, so the small + slides
-// across the cassette by the full camera-pan distance instead of the much
-// smaller "tilt-induced aim shift" we'd see with a centered overlay.
+// v19: device-style rectification.  We warp the live <video> element via CSS
+// matrix3d so the ArUco's actual screen position is pinned to a fixed target
+// rect at the viewfinder center.  This mirrors the device's
+// ViewfinderPipeline::getWarpMatrix flow:
 //
-// Falls back to viewfinder center if the marker's screen position can't
-// be computed for any reason.
+//   cv::projectPoints(homographyAnchorPoints, rvec, tvec, K, D, projected)
+//   H = cv::findHomography(projected, fixedReferencePoints)
+//   warpPerspective(camera, H)  // VPI on device; CSS matrix3d here
+//
+// Because the camera image now lands the marker at the fixed target,
+// the cassette overlay's local origin can sit at viewfinder center and
+// will be visually locked to the marker — same coherence as the device,
+// without any per-overlay anchor tracking.
 function buildLocalToScreen(p) {
   const W = lcd.clientWidth, H = lcd.clientHeight;
   const aaSide = SETTINGS.activeAreaScreenFrac * Math.min(W, H);
   const scale = aaSide / SETTINGS.activeAreaCm;
-  const cosR = Math.cos(p.roll), sinR = Math.sin(p.roll);
-
-  // ArUco center in screen px = average of corner positions mapped via the
-  // current frame->screen scale (object-fit: cover preserved).
-  let cx = W / 2, cy = H / 2;
-  const map = frameToScreenScale();
-  if (map && p.qrImg && p.qrImg.length === 4) {
-    let sx = 0, sy = 0;
-    for (const c of p.qrImg) { const s = map(c); sx += s.x; sy += s.y; }
-    cx = sx / 4;
-    cy = sy / 4;
-  }
-
+  // No roll term: the v19 video rectification un-rotates the marker so it
+  // lands axis-aligned in the viewfinder.  If we ALSO rolled the cassette
+  // overlay we'd counter-rotate against the warp.  The chrome around the
+  // viewfinder is fixed-orientation anyway, so axis-aligned is correct.
+  const cx = W / 2, cy = H / 2;
   const H_l_to_s = [
-    scale * cosR, -scale * sinR, cx,
-    scale * sinR,  scale * cosR, cy,
-    0,             0,            1,
+    scale, 0,     cx,
+    0,     scale, cy,
+    0,     0,     1,
   ];
   return { H_l_to_s, scale, cx, cy, W, H, aaSide };
+}
+
+// Build a screen-space homography that maps the marker's current screen
+// corners to a fixed axis-aligned target rect at the viewfinder center.
+// This effectively un-projects perspective (skew/tilt) AND un-rotates the
+// marker (since the marker's TL/TR/BR/BL corners go to the rect's TL/TR/BR/BL
+// corners regardless of the printed page's roll).  Equivalent to the
+// device's getWarpMatrix(rvec, tvec, angle=0) with referenceAnchorPoints
+// chosen as an axis-aligned square at viewfinder center.
+function videoRectifyMatrix3d(p) {
+  const map = frameToScreenScale();
+  if (!map || !p.qrImg || p.qrImg.length !== 4) return null;
+  const W = lcd.clientWidth, H = lcd.clientHeight;
+  if (!W || !H) return null;
+
+  // Marker corners in screen px (current).  These are the source points.
+  const src = p.qrImg.map(c => map(c));
+
+  // Target rect: a fixed square at LCD center sized to match the cassette
+  // active area's screen footprint.  The marker is SETTINGS.qrPhysicalCm wide,
+  // and the active area is SETTINGS.activeAreaCm wide, so the marker should
+  // map to a (qr/active) fraction of that square.
+  const aaSide = SETTINGS.activeAreaScreenFrac * Math.min(W, H);
+  const markerSide = aaSide * (SETTINGS.qrPhysicalCm / SETTINGS.activeAreaCm);
+  const cx = W / 2, cy = H / 2;
+  const half = markerSide / 2;
+  // Match the corner ordering used in buildPose (qrLocal): TL, TR, BR, BL
+  const dst = [
+    { x: cx - half, y: cy - half },
+    { x: cx + half, y: cy - half },
+    { x: cx + half, y: cy + half },
+    { x: cx - half, y: cy + half },
+  ];
+  return homography4(src, dst);
 }
 
 function matrix3dFromH(H) {
@@ -590,8 +620,24 @@ function applyCassetteTransform(p, l2s) {
   cassetteImg.classList.add('show');
 }
 
+// v19: rectify the live camera by warping the <video> element so the marker
+// pins to a fixed target rect at viewfinder center.  We use One-Euro-smoothed
+// corners (already in p.qrImg via the detection pipeline) so the warp is
+// jitter-free.  When the homography fails or the marker is missing, we
+// fall back to identity (un-warped video).
+function applyVideoRectification(p) {
+  const H = videoRectifyMatrix3d(p);
+  if (!H) {
+    video.style.transform = '';
+    return;
+  }
+  video.style.transformOrigin = '0 0';
+  video.style.transform = matrix3dFromH(H);
+}
+
 function clearTransforms() {
   cassetteImg.classList.remove('show');
+  video.style.transform = '';
 }
 
 // ============================================================================
@@ -858,6 +904,7 @@ function drawScene() {
   if (state.pose) {
     const p = state.pose;
     const l2s = buildLocalToScreen(p);
+    applyVideoRectification(p);
     applyCassetteTransform(p, l2s);
 
     // Active area outline (always)
