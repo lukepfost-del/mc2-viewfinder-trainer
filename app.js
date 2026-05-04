@@ -507,18 +507,60 @@ function buildPose(qr) {
     H_l_to_img, H_img_to_l, H_l_to_videoPx, H_videoPx_to_l,
     sidCm, tiltDeg, tiltVec, roll,
     aimLocal, fieldHalf, half, inBounds,
+    qrImg,
   };
 }
 
 // ============================================================================
 // Rectification (from v1)
 // ============================================================================
+// Maps a point in working-frame pixel space (state.frameW x state.frameH)
+// to LCD screen-px, accounting for the video's object-fit: cover transform
+// that fills #lcd.  Working coords scale proportionally to video coords,
+// then video coords map to screen via cover (scale-to-fill, center-crop).
+function frameToScreenScale() {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const fw = state.frameW, fh = state.frameH;
+  const W = lcd.clientWidth, H = lcd.clientHeight;
+  if (!vw || !vh || !fw || !fh || !W || !H) return null;
+  // working-frame -> video px
+  const sxFV = vw / fw, syFV = vh / fh;
+  // video -> LCD via object-fit: cover
+  const sCover = Math.max(W / vw, H / vh);
+  const offX = (W - vw * sCover) / 2;
+  const offY = (H - vh * sCover) / 2;
+  return (pt) => ({
+    x: pt.x * sxFV * sCover + offX,
+    y: pt.y * syFV * sCover + offY,
+  });
+}
+
+// Cassette overlay anchors to the ArUco's ACTUAL position in the camera
+// frame (AR-style tracking) rather than the viewfinder center.  This makes
+// aim feedback responsive to camera motion: panning the phone moves both
+// the live ArUco and the cassette overlay together, so the small + slides
+// across the cassette by the full camera-pan distance instead of the much
+// smaller "tilt-induced aim shift" we'd see with a centered overlay.
+//
+// Falls back to viewfinder center if the marker's screen position can't
+// be computed for any reason.
 function buildLocalToScreen(p) {
   const W = lcd.clientWidth, H = lcd.clientHeight;
   const aaSide = SETTINGS.activeAreaScreenFrac * Math.min(W, H);
   const scale = aaSide / SETTINGS.activeAreaCm;
-  const cx = W / 2, cy = H / 2;
   const cosR = Math.cos(p.roll), sinR = Math.sin(p.roll);
+
+  // ArUco center in screen px = average of corner positions mapped via the
+  // current frame->screen scale (object-fit: cover preserved).
+  let cx = W / 2, cy = H / 2;
+  const map = frameToScreenScale();
+  if (map && p.qrImg && p.qrImg.length === 4) {
+    let sx = 0, sy = 0;
+    for (const c of p.qrImg) { const s = map(c); sx += s.x; sy += s.y; }
+    cx = sx / 4;
+    cy = sy / 4;
+  }
+
   const H_l_to_s = [
     scale * cosR, -scale * sinR, cx,
     scale * sinR,  scale * cosR, cy,
