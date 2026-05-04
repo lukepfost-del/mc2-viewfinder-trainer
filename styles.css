@@ -214,7 +214,11 @@ html, body {
   transition: opacity 200ms;
   z-index: 2;
 }
-#cassette-img.show { opacity: 1; }
+/* v19.2: cassette photo at 0.45 so the warped video shows through.  The
+   device doesn't render a cassette photo at all — it draws a translucent
+   ActiveAreaOverlay::fillConvexPoly over the live camera.  The trainer
+   keeps the photo as a visualization aid but lets the video bleed through. */
+#cassette-img.show { opacity: 0.45; }
 #overlay {
   position: absolute; inset: 0; width: 100%; height: 100%;
   pointer-events: none; z-index: 3;

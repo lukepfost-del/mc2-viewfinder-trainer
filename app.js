@@ -553,34 +553,16 @@ function frameToScreenScale() {
 // without any per-overlay anchor tracking.
 function buildLocalToScreen(p) {
   const W = lcd.clientWidth, H = lcd.clientHeight;
-
-  // Derive scale (cm → screen px) from the marker's natural screen size.
-  // This keeps the cassette overlay locked in sync with the warped marker:
-  // closer = both bigger, farther = both smaller — same as the device's
-  // unscaled rectification.  Falls back to activeAreaScreenFrac when we
-  // don't have marker-on-screen info (no pose yet).
-  let scale, aaSide;
-  const map = frameToScreenScale();
-  if (map && p.qrImg && p.qrImg.length === 4) {
-    const sc = p.qrImg.map(c => map(c));
-    let edgeSum = 0;
-    for (let i = 0; i < 4; i++) {
-      const a = sc[i], b = sc[(i + 1) % 4];
-      edgeSum += Math.hypot(b.x - a.x, b.y - a.y);
-    }
-    const markerSide = edgeSum / 4;
-    scale = markerSide / SETTINGS.qrPhysicalCm;
-    aaSide = scale * SETTINGS.activeAreaCm;
-  } else {
-    aaSide = SETTINGS.activeAreaScreenFrac * Math.min(W, H);
-    scale = aaSide / SETTINGS.activeAreaCm;
-  }
-
+  // FIXED size on screen, matching the device's referenceAnchorPoints_ (which
+  // are world-space cassette corners scaled by config.warpScale and offset
+  // around image center — never tied to the live marker's apparent size).
+  // The warp target rect (videoRectifyMatrix3d) uses the SAME aaSide so the
+  // marker is always pinned to the cassette overlay's active area exactly.
+  const aaSide = SETTINGS.activeAreaScreenFrac * Math.min(W, H);
+  const scale = aaSide / SETTINGS.activeAreaCm;
   // Roll the cassette overlay by the marker's roll so it stays aligned with
-  // the printed page.  videoRectifyMatrix3d rolls its dst rect by the same
-  // angle, so warped marker + overlay rotate together — matching the device's
-  // getWarpMatrix(rvec, tvec, angle=roll) flow (Viewfinder.cpp passes
-  // vfEuler_.z, the camera roll).
+  // the printed page (matches device's getWarpMatrix(rvec, tvec, angle=roll)
+  // — Viewfinder.cpp passes vfEuler_.z, the camera roll).
   const cosR = Math.cos(p.roll), sinR = Math.sin(p.roll);
   const cx = W / 2, cy = H / 2;
   const H_l_to_s = [
@@ -607,18 +589,15 @@ function videoRectifyMatrix3d(p) {
   // Marker corners in screen px (current).  These are the source points.
   const src = p.qrImg.map(c => map(c));
 
-  // Target rect: keep the marker at roughly its NATURAL screen size, so the
-  // warp removes perspective + recenters but doesn't zoom.  Scaling the
-  // target down would shrink the whole warped video (since the rest of the
-  // frame extends out from the marker in proportion), leaving black around
-  // it.  We use the average current screen edge length.
+  // Target rect: FIXED size on screen — exactly the marker's slot inside
+  // the cassette overlay's active-area rect.  This matches the device's
+  // pipeline, where referenceAnchorPoints_ are world-space cassette corners
+  // scaled by warpScale (1.5 in viewfinder-config.json), offset around the
+  // image center.  As SID changes, the warp scales the camera content
+  // (background zooms in/out) while the cassette + marker stay put.
+  const aaSide = SETTINGS.activeAreaScreenFrac * Math.min(W, H);
+  const markerSide = aaSide * (SETTINGS.qrPhysicalCm / SETTINGS.activeAreaCm);
   const cx = W / 2, cy = H / 2;
-  let edgeSum = 0;
-  for (let i = 0; i < 4; i++) {
-    const a = src[i], b = src[(i + 1) % 4];
-    edgeSum += Math.hypot(b.x - a.x, b.y - a.y);
-  }
-  const markerSide = edgeSum / 4;
   const half = markerSide / 2;
   // Local axis-aligned corners (TL, TR, BR, BL — matches buildPose qrLocal).
   const local = [
