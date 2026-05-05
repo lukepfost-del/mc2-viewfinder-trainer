@@ -553,18 +553,29 @@ function frameToScreenScale() {
 // without any per-overlay anchor tracking.
 function buildLocalToScreen(p) {
   const W = lcd.clientWidth, H = lcd.clientHeight;
-  // FIXED size on screen, matching the device's referenceAnchorPoints_ (which
-  // are world-space cassette corners scaled by config.warpScale and offset
-  // around image center — never tied to the live marker's apparent size).
-  // The warp target rect (videoRectifyMatrix3d) uses the SAME aaSide so the
-  // marker is always pinned to the cassette overlay's active area exactly.
+  // FIXED size on screen, matching the device's referenceAnchorPoints_.
   const aaSide = SETTINGS.activeAreaScreenFrac * Math.min(W, H);
   const scale = aaSide / SETTINGS.activeAreaCm;
-  // Roll the cassette overlay by the marker's roll so it stays aligned with
-  // the printed page (matches device's getWarpMatrix(rvec, tvec, angle=roll)
-  // — Viewfinder.cpp passes vfEuler_.z, the camera roll).
+
+  // v20: anchor the cassette overlay to the marker's actual screen position
+  // (instead of warping the video so the marker comes to viewfinder center).
+  // The video stays un-warped (full LCD coverage, no black perimeter), and
+  // the cassette overlay translates+rotates to follow the marker — same
+  // visual lock the device achieves with rectification, without the
+  // shrink-the-whole-video side effect that comes from warping at close
+  // range.  Falls back to viewfinder center if the marker's screen position
+  // can't be computed.
+  let cx = W / 2, cy = H / 2;
+  const map = frameToScreenScale();
+  if (map && p.qrImg && p.qrImg.length === 4) {
+    let sx = 0, sy = 0;
+    for (const c of p.qrImg) { const s = map(c); sx += s.x; sy += s.y; }
+    cx = sx / 4;
+    cy = sy / 4;
+  }
+
+  // Roll the overlay by the marker's roll so it aligns with the printed page.
   const cosR = Math.cos(p.roll), sinR = Math.sin(p.roll);
-  const cx = W / 2, cy = H / 2;
   const H_l_to_s = [
     scale * cosR, -scale * sinR, cx,
     scale * sinR,  scale * cosR, cy,
@@ -639,24 +650,15 @@ function applyCassetteTransform(p, l2s) {
   cassetteImg.classList.add('show');
 }
 
-// v19: rectify the live camera by warping the <video> element so the marker
-// pins to a fixed target rect at viewfinder center.  We use One-Euro-smoothed
-// corners (already in p.qrImg via the detection pipeline) so the warp is
-// jitter-free.  When the homography fails or the marker is missing, we
-// fall back to identity (un-warped video).
-function applyVideoRectification(p) {
-  const H = videoRectifyMatrix3d(p);
-  if (!H) {
-    video.style.transform = '';
-    return;
-  }
-  video.style.transformOrigin = '0 0';
-  video.style.transform = matrix3dFromH(H);
-}
+// v20: video is no longer warped.  Pinning the marker via a matrix3d warp
+// shrinks the whole video at close range (where the input marker is large),
+// causing a black perimeter — the device hides this with chrome around its
+// LCD region, but our viewfinder IS the LCD.  Instead we translate+rotate
+// just the cassette overlay (in buildLocalToScreen) to follow the marker.
+// The function below is kept for reference only and is not called.
 
 function clearTransforms() {
   cassetteImg.classList.remove('show');
-  video.style.transform = '';
 }
 
 // ============================================================================
@@ -923,7 +925,6 @@ function drawScene() {
   if (state.pose) {
     const p = state.pose;
     const l2s = buildLocalToScreen(p);
-    applyVideoRectification(p);
     applyCassetteTransform(p, l2s);
 
     // Active area outline (always)
