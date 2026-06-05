@@ -48,6 +48,9 @@ window.addEventListener('unhandledrejection', function (e) {
 // =============================================================================
 
 // ---- DOM ----
+const bootScreen    = document.getElementById('boot-screen');
+const bootVideo     = document.getElementById('boot-video');
+const welcomeScreen = document.getElementById('welcome-screen');
 const startScreen   = document.getElementById('start-screen');
 const routeTutorial = document.getElementById('route-tutorial');
 const routePlay     = document.getElementById('route-play');
@@ -1495,6 +1498,10 @@ function showStartScreen() {
   state.mode = MODE.NONE;
   stopCamera();
   appShell.classList.add('hidden');
+  // v21: ensure boot + welcome are gone when arriving at the route picker
+  // (whether from app-shell back button or first-load chain).
+  bootScreen.classList.add('hidden');
+  welcomeScreen.classList.add('hidden');
   startScreen.classList.remove('hidden');
   renderTileStars();
   viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid','armed','blocked','searching');
@@ -1576,6 +1583,31 @@ function stepArr(arr, val, dir) {
   return arr[j];
 }
 
-// Focal length is now a fixed default (~75° FOV — typical phone main camera).
-// SETTINGS.focalRel was already set above; nothing else to do at boot.
-showStartScreen();
+// v21 startup: boot video (HTML default visible) → welcome screen → route
+// picker.  No initial showStartScreen() call — boot screen is visible by
+// default in markup, and we advance through the chain via the handlers
+// below.
+function showWelcome() {
+  bootScreen.classList.add('hidden');
+  startScreen.classList.add('hidden');
+  welcomeScreen.classList.remove('hidden');
+}
+function showStartFromWelcome() {
+  welcomeScreen.classList.add('hidden');
+  showStartScreen();
+}
+function bootDone() {
+  if (bootDone._fired) return;
+  bootDone._fired = true;
+  showWelcome();
+}
+// Advance off boot when the video ends, or after a safety timeout in case it
+// fails to autoplay (mobile Safari may block muted autoplay in rare configs).
+bootVideo.addEventListener('ended', bootDone);
+bootVideo.addEventListener('error', bootDone);
+setTimeout(bootDone, 3500);
+// Tap-anywhere advances off welcome.
+welcomeScreen.addEventListener('click', function () {
+  try { MC2Audio.unlock(); } catch (e) {}
+  showStartFromWelcome();
+});

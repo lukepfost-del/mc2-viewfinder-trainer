@@ -35,44 +35,114 @@ html, body {
 /* ===================================================================
    START SCREEN — Tutorial vs Play
    =================================================================== */
+/* ===================================================================
+   BOOT SCREEN — OXOS animation on black
+   =================================================================== */
+#boot-screen {
+  position: fixed; inset: 0; z-index: 70;
+  background: #000;
+  display: flex; align-items: center; justify-content: center;
+}
+#boot-video {
+  width: min(70vw, 70vh);
+  height: auto;
+  max-width: 460px;
+  background: #000;
+  display: block;
+}
+
+/* ===================================================================
+   WELCOME SCREEN — title, tap to begin
+   =================================================================== */
+#welcome-screen {
+  position: fixed; inset: 0; z-index: 60;
+  background: #000;
+  color: var(--text);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: max(env(safe-area-inset-top, 0px), 32px) 28px max(env(safe-area-inset-bottom, 0px), 32px);
+  cursor: pointer;
+}
+.welcome-inner {
+  flex: 1 1 auto;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  text-align: center;
+  max-width: 480px; width: 100%;
+}
+#welcome-screen h1 {
+  margin: 0 0 16px 0;
+  font-size: 28px;
+  letter-spacing: 0.4px;
+  line-height: 1.2;
+  font-weight: 800;
+}
+.welcome-sub {
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 36px 0;
+}
+.welcome-cta {
+  font-size: 14px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text);
+  opacity: 0.85;
+  padding: 12px 22px;
+  border: 1px solid rgba(255,255,255,0.4);
+  border-radius: 999px;
+  animation: welcome-pulse 1.6s ease-in-out infinite;
+}
+@keyframes welcome-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.03); }
+}
+.welcome-credit {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.4px;
+  opacity: 0.7;
+  text-align: center;
+  margin-top: 24px;
+}
+.welcome-credit strong {
+  color: var(--text-soft);
+  font-weight: 700;
+}
+
+/* ===================================================================
+   START SCREEN — route picker (Tutorial / Play) + print card
+   =================================================================== */
 #start-screen {
   position: fixed; inset: 0; z-index: 50;
-  background: linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
+  background: #000;
   display: flex; align-items: center; justify-content: center;
   padding: max(env(safe-area-inset-top, 0px), 24px) 18px max(env(safe-area-inset-bottom, 0px), 24px);
   overflow-y: auto;
 }
 .start-inner {
-  max-width: 420px; width: 100%; text-align: center;
-}
-.start-logo {
-  width: 110px; height: auto; margin-bottom: 14px;
-  filter: brightness(1.1);
-}
-#start-screen h1 {
-  margin: 0 0 6px 0; font-size: 24px; letter-spacing: 0.5px;
-}
-#start-screen .sub {
-  color: var(--text-dim); font-size: 13px; line-height: 1.5;
-  margin: 0 0 22px 0;
+  max-width: 720px; width: 100%; text-align: center;
 }
 
 .route-tiles {
-  display: flex; flex-direction: column; gap: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
   margin-bottom: 22px;
+  align-items: stretch;
 }
 .route-tile {
   width: 100%;
   background: var(--bg-2);
   border: 1px solid var(--pill-stroke);
   border-radius: 14px;
-  padding: 18px 16px;
+  padding: 22px 18px;
   color: var(--text);
   text-align: left;
-  display: grid;
-  grid-template-columns: 56px 1fr;
-  grid-template-rows: auto auto;
-  column-gap: 14px;
+  display: flex; flex-direction: column;
+  gap: 6px;
   cursor: pointer;
   transition: transform 80ms, border-color 200ms, background 200ms;
 }
@@ -81,38 +151,75 @@ html, body {
 .route-tile.tutorial:hover { background: rgba(61,176,107,0.08); }
 .route-tile.play     { border-color: rgba(255,179,2,0.35); }
 .route-tile.play:hover { background: rgba(255,179,2,0.08); }
-.tile-icon {
-  grid-row: 1 / span 2; align-self: center; justify-self: center;
-  font-size: 30px; line-height: 1;
+.tile-title { font-size: 20px; font-weight: 800; letter-spacing: 0.5px; }
+.tile-sub   { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.tile-list {
+  list-style: disc;
+  padding-left: 18px;
+  margin: 10px 0 0 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.55;
 }
-.tile-title { font-size: 18px; font-weight: 800; letter-spacing: 0.5px; }
-.tile-sub   { font-size: 12px; color: var(--text-dim); margin-top: 3px; }
+.tile-list li { margin: 2px 0; }
 .tile-stars {
-  grid-column: 2; grid-row: 2;
-  margin-top: 6px;
+  margin-top: 10px;
   font-size: 14px; letter-spacing: 2px;
   color: var(--amber);
   font-variant-numeric: tabular-nums;
 }
 
-.footnote {
-  font-size: 11px; color: var(--text-dim); line-height: 1.5;
-  margin: 0;
+/* Mobile: stack tiles vertically when too narrow */
+@media (max-width: 520px) {
+  .route-tiles { grid-template-columns: 1fr; }
 }
+
+.print-card {
+  background: var(--bg-2);
+  border: 1px solid var(--pill-stroke);
+  border-radius: 12px;
+  padding: 16px 16px 14px 16px;
+  text-align: left;
+}
+.print-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.print-card-text {
+  margin: 0 0 12px 0;
+  font-size: 12px; line-height: 1.55;
+  color: var(--text-dim);
+}
+.print-card-text strong {
+  color: var(--text-soft);
+  font-weight: 700;
+}
+.print-download {
+  display: inline-block;
+  background: var(--text);
+  color: #000;
+  font-size: 13px; font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  text-decoration: none;
+  transition: opacity 120ms;
+}
+.print-download:hover { opacity: 0.85; }
+
 .credit {
   font-size: 11px; color: var(--text-dim);
-  margin: 14px 0 0 0;
+  margin: 18px 0 0 0;
   letter-spacing: 0.3px;
   opacity: 0.85;
 }
 .credit strong {
   color: var(--text-soft);
   font-weight: 700;
-}
-.footnote code {
-  background: rgba(255,255,255,0.06);
-  padding: 1px 5px; border-radius: 4px;
-  font-size: 11px;
 }
 
 /* ===================================================================

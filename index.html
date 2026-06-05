@@ -10,32 +10,58 @@
 <body>
 
 <!-- =================================================================== -->
+<!-- BOOT SCREEN: OXOS animation, auto-advances when video ends           -->
+<!-- =================================================================== -->
+<div id="boot-screen">
+  <video id="boot-video" src="assets/oxos-boot.mp4" autoplay muted playsinline webkit-playsinline></video>
+</div>
+
+<!-- =================================================================== -->
+<!-- WELCOME SCREEN: title, sub, tap to begin, OXOS credit                -->
+<!-- =================================================================== -->
+<div id="welcome-screen" class="hidden">
+  <div class="welcome-inner">
+    <h1>Welcome to the MC2 Viewfinder Trainer</h1>
+    <p class="welcome-sub">Practice aiming the MC2 Emitter using your phone camera and the printed target card.</p>
+    <div class="welcome-cta">Tap to begin</div>
+  </div>
+  <div class="welcome-credit">Built by <strong>OXOS Advanced Concepts</strong></div>
+</div>
+
+<!-- =================================================================== -->
 <!-- START SCREEN: Tutorial vs Play route                                 -->
 <!-- =================================================================== -->
-<div id="start-screen">
+<div id="start-screen" class="hidden">
   <div class="start-inner">
-    <img class="start-logo" src="assets/oxos-logo.svg" alt="OXOS">
-    <h1>MC2 Viewfinder Trainer</h1>
-    <p class="sub">Practice aiming the MC2 emitter using your phone camera and the printed target card.</p>
-
     <div class="route-tiles">
       <button class="route-tile tutorial" id="route-tutorial">
-        <div class="tile-icon">&#x1F3AE;</div>
         <div class="tile-title">Tutorial</div>
         <div class="tile-sub">Learn the controls &mdash; 5 lessons</div>
+        <ul class="tile-list">
+          <li>Aim &mdash; land the crosshair on the cassette</li>
+          <li>Center &mdash; fine-tune to the bullseye</li>
+          <li>Perpendicular &mdash; flatten tilt under 3&deg;</li>
+          <li>SID &mdash; set distance to 60&nbsp;cm &plusmn;&nbsp;5&nbsp;cm</li>
+          <li>Safe Exposure &mdash; keep all four green</li>
+        </ul>
         <div class="tile-stars" id="tile-stars"></div>
       </button>
       <button class="route-tile play" id="route-play">
-        <div class="tile-icon">&#x1F441;</div>
         <div class="tile-title">Play</div>
-        <div class="tile-sub">Free practice with the full HUD</div>
+        <div class="tile-sub">Free practice with the full system</div>
       </button>
     </div>
 
-    <p class="footnote">
-      Print <code>qr-target.pdf</code> at 100% scale on letter paper.
-      The marker is fixed at 6&nbsp;cm so the trainer always calibrates correctly.
-    </p>
+    <div class="print-card">
+      <div class="print-card-title">Print the target card</div>
+      <p class="print-card-text">
+        You'll need a printed copy of the target card to use the trainer.
+        Print at <strong>100% scale</strong> (Actual Size, not "Fit to Page")
+        on letter paper, then lay it flat.
+      </p>
+      <a class="print-download" href="qr-target.pdf" download>Download target PDF</a>
+    </div>
+
     <p class="credit">Built by the <strong>Advanced Concepts</strong> team &middot; OXOS Medical</p>
   </div>
 </div>
