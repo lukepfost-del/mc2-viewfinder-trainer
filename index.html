@@ -124,10 +124,15 @@
 
     <div class="exam-card">
       <div class="exam-card-illus">
-        <img id="exam-card-img" alt="" />
+        <img id="exam-card-img-a" class="exam-card-img" alt="" />
+        <img id="exam-card-img-b" class="exam-card-img" alt="" />
         <div class="exam-card-illus-placeholder" id="exam-card-placeholder">
           <div class="placeholder-cassette"></div>
           <div class="placeholder-label">Anatomy artwork pending</div>
+        </div>
+        <div class="exam-card-toggle hidden" id="exam-card-toggle">
+          <button class="exam-card-toggle-btn active" data-ref="a">A</button>
+          <button class="exam-card-toggle-btn" data-ref="b">B</button>
         </div>
       </div>
       <div class="exam-card-specs">
@@ -200,6 +205,9 @@
     <div id="lcd">
       <video id="video" autoplay muted playsinline webkit-playsinline></video>
       <img id="cassette-img" src="assets/cassette-full.webp" alt="" />
+      <!-- v24.2: Simulated Exam anatomy overlay — rides the cassette's
+           transform so it tracks the printed marker. -->
+      <img id="exam-anatomy-img" alt="" />
       <canvas id="overlay"></canvas>
     </div>
 

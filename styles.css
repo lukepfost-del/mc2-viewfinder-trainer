@@ -489,13 +489,42 @@ html, body {
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
 }
-.exam-card-illus img {
+.exam-card-img {
+  position: absolute; inset: 0;
   width: 100%; height: 100%;
   object-fit: contain;
-  display: block;
+  display: none;  /* shown by JS once the matching variant loads */
+  padding: 14px;
 }
-.exam-card-illus img:not([src]),
-.exam-card-illus img[src=""] { display: none; }
+.exam-card-img.active { display: block; }
+/* A/B toggle button group anchored to the bottom-right of the illustration */
+.exam-card-toggle {
+  position: absolute;
+  bottom: 10px; right: 10px;
+  display: flex; gap: 4px;
+  background: rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 999px;
+  padding: 3px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.exam-card-toggle-btn {
+  width: 30px; height: 26px;
+  background: transparent;
+  border: 0;
+  color: var(--text-soft);
+  font-size: 12px; font-weight: 700;
+  letter-spacing: 1px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 200ms ease, color 200ms ease;
+}
+.exam-card-toggle-btn.active {
+  background: var(--oxos-blue);
+  color: #fff;
+}
 .exam-card-illus-placeholder {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;
@@ -741,6 +770,22 @@ html, body {
    position, the photo sits directly over the marker and there's no need
    to bleed the video through it. */
 #cassette-img.show { opacity: 1; }
+
+/* v24.2: Simulated Exam anatomy overlay.  Sized to match the cassette image
+   (also 720x720, same matrix3d transform).  Sits on top of the cassette so
+   the anatomy artwork lands over the detector active area. */
+#exam-anatomy-img {
+  position: absolute; left: 0; top: 0;
+  width: 720px; height: 720px;
+  transform-origin: 0 0;
+  will-change: transform;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms;
+  object-fit: contain;   /* preserve anatomy SVG aspect inside the 720x720 box */
+  z-index: 4;            /* above cassette (z=2) + overlay canvas (z=3) */
+}
+#exam-anatomy-img.show { opacity: 1; }
 #overlay {
   position: absolute; inset: 0; width: 100%; height: 100%;
   pointer-events: none; z-index: 3;

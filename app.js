@@ -67,8 +67,11 @@ const examViewsOverline  = document.getElementById('exam-views-overline');
 const examViewsTitle     = document.getElementById('exam-views-title');
 const examDetailOverline = document.getElementById('exam-detail-overline');
 const examDetailTitle    = document.getElementById('exam-detail-title');
-const examCardImg        = document.getElementById('exam-card-img');
+const examCardImgA       = document.getElementById('exam-card-img-a');
+const examCardImgB       = document.getElementById('exam-card-img-b');
 const examCardPlaceholder= document.getElementById('exam-card-placeholder');
+const examCardToggle     = document.getElementById('exam-card-toggle');
+const examAnatomyImg     = document.getElementById('exam-anatomy-img');
 const examSpecSid        = document.getElementById('exam-spec-sid');
 const examSpecKv         = document.getElementById('exam-spec-kv');
 const examSpecMas        = document.getElementById('exam-spec-mas');
@@ -680,6 +683,27 @@ function applyCassetteTransform(p, l2s) {
   const T_i_to_s = mul3x3(l2s.H_l_to_s, T_i_to_l);
   cassetteImg.style.transform = matrix3dFromH(T_i_to_s);
   cassetteImg.classList.add('show');
+
+  // v24.2: anatomy overlay (Simulated Exam).  The 720x720 img is sized so
+  // its full extent fills the active-area square (activeAreaCm wide centered
+  // on local origin).  object-fit: contain on the img keeps the anatomy
+  // SVG's aspect, so it sits roughly centered on the cassette — matching
+  // how it appears in the paired "Anatomy + Cassette" reference.
+  if (examAnatomyImg.dataset.exam) {
+    const ANATOMY_SCALE = 1.0;     // 1.0 = anatomy span equals active area
+    const aaCm = SETTINGS.activeAreaCm * ANATOMY_SCALE;
+    const aPxToCm = aaCm / Wpx;
+    const aCx = Wpx / 2;
+    const aCy = Wpx / 2;
+    const T_a_to_l = [
+      aPxToCm, 0, -aCx * aPxToCm,
+      0, aPxToCm, -aCy * aPxToCm,
+      0, 0, 1,
+    ];
+    const T_a_to_s = mul3x3(l2s.H_l_to_s, T_a_to_l);
+    examAnatomyImg.style.transform = matrix3dFromH(T_a_to_s);
+    examAnatomyImg.classList.add('show');
+  }
 }
 
 // v20: video is no longer warped.  Pinning the marker via a matrix3d warp
@@ -691,6 +715,7 @@ function applyCassetteTransform(p, l2s) {
 
 function clearTransforms() {
   cassetteImg.classList.remove('show');
+  examAnatomyImg.classList.remove('show');
 }
 
 // ============================================================================
@@ -1106,6 +1131,7 @@ function startTutorial() {
   // Tutorial never has an exam context — clear any lingering one and hide ref.
   state.currentExam = null;
   updateExamRefCard();
+  loadExamAnatomyOverlay();   // clears the HUD overlay
   setLevelUI();
   enterApp();
 }
@@ -1133,6 +1159,8 @@ function startPlay(opts) {
   liveReadouts.style.display = 'flex';
   // v24.1: surface the exam reference card if we have one.
   updateExamRefCard();
+  // v24.2: load the anatomy overlay artwork for this exam (if any).
+  loadExamAnatomyOverlay();
   // If transitioning from tutorial, camera is already running — don't restart it
   if (opts.keepCamera) {
     appShell.classList.remove('hidden');
@@ -1140,6 +1168,32 @@ function startPlay(opts) {
   } else {
     enterApp();
   }
+}
+
+// v24.2: load the HUD anatomy overlay for the current exam.  We probe the
+// URL with an Image() so a missing file gracefully leaves the overlay off.
+// The `data-exam` attribute on the img element gates the matrix3d transform
+// inside applyCassetteTransform — so when anatomy is missing, the overlay
+// stays invisible and isn't transformed at all.
+function loadExamAnatomyOverlay() {
+  const ex = state.currentExam;
+  if (!ex || !ex.assetAnatomy) {
+    examAnatomyImg.removeAttribute('src');
+    delete examAnatomyImg.dataset.exam;
+    examAnatomyImg.classList.remove('show');
+    return;
+  }
+  const probe = new Image();
+  probe.onload = function () {
+    examAnatomyImg.src = ex.assetAnatomy;
+    examAnatomyImg.dataset.exam = ex.id;
+  };
+  probe.onerror = function () {
+    examAnatomyImg.removeAttribute('src');
+    delete examAnatomyImg.dataset.exam;
+    examAnatomyImg.classList.remove('show');
+  };
+  probe.src = ex.assetAnatomy;
 }
 
 // v24.1: render the exam reference card under the HUD.  Looks up the current
@@ -1582,6 +1636,10 @@ function showStartScreen() {
   examDetailScreen.classList.add('hidden');
   // v24.1: hide HUD reference card whenever we land back on route picker.
   examRefCard.classList.add('hidden');
+  // v24.2: also clear the HUD anatomy overlay.
+  delete examAnatomyImg.dataset.exam;
+  examAnatomyImg.classList.remove('show');
+  examAnatomyImg.removeAttribute('src');
   startScreen.classList.remove('hidden');
   renderTileStars();
   viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid','armed','blocked','searching');
@@ -1695,22 +1753,28 @@ function renderExamDetail(exam, section) {
   examDetailTitle.textContent = exam.name;
   examSpecSid.textContent = exam.sidCm + ' cm';
 
-  // Artwork: try to load, hide placeholder if it exists; otherwise show placeholder.
-  // We probe with an Image() so the swap is graceful when the file is missing.
-  examCardImg.style.display = 'none';
+  // Reset card illustration state, then probe cassette-a and cassette-b.
+  examCardImgA.classList.remove('active');
+  examCardImgB.classList.remove('active');
+  examCardImgA.style.display = 'none';
+  examCardImgB.style.display = 'none';
+  examCardToggle.classList.add('hidden');
   examCardPlaceholder.style.display = 'flex';
-  const probe = new Image();
-  probe.onload = function () {
-    examCardImg.src = exam.assetSvg;
-    examCardImg.style.display = 'block';
-    examCardPlaceholder.style.display = 'none';
-  };
-  probe.onerror = function () {
-    examCardImg.removeAttribute('src');
-    examCardImg.style.display = 'none';
-    examCardPlaceholder.style.display = 'flex';
-  };
-  probe.src = exam.assetSvg;
+  examCardToggle.querySelectorAll('.exam-card-toggle-btn').forEach(function (btn) {
+    btn.classList.toggle('active', btn.getAttribute('data-ref') === 'a');
+  });
+
+  loadCassetteRef(examCardImgA, exam.assetCassetteA, function (ok) {
+    if (ok) {
+      examCardImgA.classList.add('active');
+      examCardImgA.style.display = 'block';
+      examCardPlaceholder.style.display = 'none';
+    }
+    loadCassetteRef(examCardImgB, exam.assetCassetteB, function (okB) {
+      // Only reveal the A/B toggle when BOTH variants loaded.
+      if (ok && okB) examCardToggle.classList.remove('hidden');
+    });
+  });
 
   // Notes
   if (exam.notes) {
@@ -1723,6 +1787,31 @@ function renderExamDetail(exam, section) {
   // Apply current mode to the kV/mAs display
   applyExamMode(exam, examState.selectedMode);
 }
+
+// Probes a cassette-ref URL with an Image() and only attaches it to the
+// element if it loads.  Graceful for the many exams that haven't shipped
+// artwork yet — they show the placeholder.
+function loadCassetteRef(imgEl, url, cb) {
+  if (!url) { cb && cb(false); return; }
+  const probe = new Image();
+  probe.onload  = function () { imgEl.src = url; cb && cb(true); };
+  probe.onerror = function () { imgEl.removeAttribute('src'); cb && cb(false); };
+  probe.src = url;
+}
+
+// Exam-card A/B toggle
+examCardToggle.addEventListener('click', function (e) {
+  const btn = e.target.closest('.exam-card-toggle-btn');
+  if (!btn) return;
+  const ref = btn.getAttribute('data-ref');
+  examCardToggle.querySelectorAll('.exam-card-toggle-btn').forEach(function (b) {
+    b.classList.toggle('active', b === btn);
+  });
+  examCardImgA.classList.toggle('active', ref === 'a');
+  examCardImgB.classList.toggle('active', ref === 'b');
+  examCardImgA.style.display = (ref === 'a') ? 'block' : 'none';
+  examCardImgB.style.display = (ref === 'b') ? 'block' : 'none';
+});
 
 function applyExamMode(exam, mode) {
   examState.selectedMode = mode;

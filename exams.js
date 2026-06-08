@@ -77,7 +77,7 @@ const EXAM_ROWS = [
   ['wrist-elbow',    'AP',                       'Elbow',         45, 60, 0.08, 60, 0.08, 60, 0.08, null],
   ['wrist-elbow',    'Oblique',                  'Elbow',         45, 40, 0.08, 50, 0.08, 50, 0.08, null],
   ['wrist-elbow',    'Lateral',                  'Elbow',         45, 60, 0.08, 60, 0.08, 60, 0.08, null],
-  ['wrist-elbow',    "Coyle's (Radial Head)",    'Elbow',         45, 40, 0.4,  50, 0.08, 50, 0.08, '45° Angle Emitter; 45° Angle Anatomy'],
+  ['wrist-elbow',    "Coyle's (Radial Head View)", 'Elbow',       45, 40, 0.4,  50, 0.08, 50, 0.08, '45° Angle Emitter; 45° Angle Anatomy'],
 
   ['arm-shoulder',   'AP',                       'Forearm',       45, 60, 0.08, 60, 0.08, 60, 0.08, null],
   ['arm-shoulder',   'Lateral',                  'Forearm',       45, 60, 0.08, 60, 0.08, 60, 0.08, null],
@@ -120,6 +120,7 @@ EXAM_ROWS.forEach(function (row) {
   const notes  = row[10];
   const name = view + ' ' + anatomy;
   const id = makeId(view) + '-' + makeId(anatomy);
+  const folder = 'assets/exams/' + sectionId + '/' + id + '/';
   const exam = {
     id: id,
     sectionId: sectionId,
@@ -129,7 +130,17 @@ EXAM_ROWS.forEach(function (row) {
     sidCm: sidCm,
     settings: { single: single, ddr: ddr, fluoro: fluoro },
     notes: notes,
-    assetSvg: 'assets/exams/' + sectionId + '/' + id + '.svg',
+    // v24.2: per-exam folder with anatomy.svg (HUD overlay) and cassette
+    // reference variants (1 or 2 of cassette-a.svg / cassette-b.svg).
+    // The trainer probes both cassette URLs with Image() and renders only
+    // what loads, so we don't need to track counts in data.
+    assetFolder:    folder,
+    assetAnatomy:   folder + 'anatomy.svg',
+    assetCassetteA: folder + 'cassette-a.svg',
+    assetCassetteB: folder + 'cassette-b.svg',
+    // Back-compat: keep assetSvg pointing at the anatomy file so any older
+    // code referring to it doesn't break.
+    assetSvg:       folder + 'anatomy.svg',
   };
   EXAMS_BY_SECTION[sectionId].exams.push(exam);
 });
