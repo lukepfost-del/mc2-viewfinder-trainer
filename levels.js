@@ -46,11 +46,11 @@ const TUNING = {
   sidLockTolCm:       5.0,
   sidMissCm:          12.0,
 
-  // Level 5: SAFE EXPOSURE — single attempt, all four green
+  // Level 5: FINAL TEST — single attempt, safe exposure at any allowed SID.
+  // SID is no longer gated (only SSD/aim/tilt); finalSidTargetCm/finalSidTolCm
+  // removed in v23.
   ssdMinCm:           30.0,
   patientThicknessCm: 5.0,
-  finalSidTargetCm:   60.0,
-  finalSidTolCm:      5.0,
 };
 
 function aimRadius(pose) {
@@ -223,39 +223,40 @@ const LEVELS = [
   },
 
   // ----------------------------------------------------------------------
-  // L5: SAFE EXPOSURE — single attempt, all four green simultaneously
+  // L5: FINAL TEST — single attempt, safe exposure at any allowed SID
+  // (the 60 cm SID interlock is dropped — user picks any SID within the
+  // device's operational range, gated only by SSD safety floor + aim/tilt).
   // ----------------------------------------------------------------------
   {
     id:       'expose',
-    step:     'LEVEL 5 / 5',
-    title:    'Safe exposure — final shot',
-    hint:     'You only get one attempt. Stabilize all four readings, then EXPOSE.',
+    step:     'FINAL TEST',
+    title:    'Final Test',
+    hint:     'Hold steady. Center the aim, flatten the tilt, keep SSD safe — then EXPOSE.',
     layer:    'full',
     readouts: ['offset', 'tilt', 'sid', 'ssd'],
     isFinal:  true,
     buildObjectives: function () {
+      // No targetSid on the final objective — user is free to pick any SID
+      // within the device's operational range; only SSD/aim/tilt are gated.
       return [{ singleShot: true }];
     },
     evaluate: function (pose, _obj) {
       if (!pose) return { ok: false, accuracy: 0, reason: 'no-cassette' };
       const r = aimRadius(pose);
-      const sidErr = Math.abs(pose.sidCm - TUNING.finalSidTargetCm);
       const ssdCm  = pose.sidCm - TUNING.patientThicknessCm;
       const aimOk  = r <= 4.0;
       const perpOk = pose.tiltDeg <= TUNING.perpTiltDeg + 1;
-      const sidOk  = sidErr <= TUNING.finalSidTolCm;
       const ssdOk  = ssdCm >= TUNING.ssdMinCm;
-      const ok     = aimOk && perpOk && sidOk && ssdOk;
-      // Composite accuracy (each component contributes 25%)
+      const ok     = aimOk && perpOk && ssdOk;
+      // Composite accuracy: three components instead of four (SID dropped
+      // from scoring since the user is free to pick).  Each contributes 1/3.
       const aimScore  = Math.max(0, 1 - r / 4);
       const perpScore = Math.max(0, 1 - pose.tiltDeg / 6);
-      const sidScore  = Math.max(0, 1 - sidErr / 10);
       const ssdScore  = ssdOk ? 1 : 0;
-      const accuracy = (aimScore + perpScore + sidScore + ssdScore) / 4;
+      const accuracy = (aimScore + perpScore + ssdScore) / 3;
       let reason = null;
       if      (!aimOk)  reason = 'off-center';
       else if (!perpOk) reason = 'too-tilted';
-      else if (!sidOk)  reason = (pose.sidCm > TUNING.finalSidTargetCm ? 'too-far' : 'too-close');
       else if (!ssdOk)  reason = 'too-close-anatomy';
       return {
         ok: ok, accuracy: accuracy, reason: reason,

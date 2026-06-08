@@ -1406,12 +1406,20 @@ function renderReadouts(types, pose, result, obj) {
         v == null ? 'bad' : ok ? 'ok' : 'warn'));
     } else if (t === 'sid') {
       const v = pose ? pose.sidCm : null;
-      const targ = obj && obj.targetSid != null ? obj.targetSid : MC2_TUNING.finalSidTargetCm;
-      const ok = v != null && Math.abs(v - targ) <= MC2_TUNING.sidLockTolCm;
-      const label = (obj && obj.targetSid != null) ? 'SID→' + targ : 'SID';
-      items.push(readoutEl(label,
-        v != null ? v.toFixed(0) + ' cm' : '—',
-        v == null ? 'bad' : ok ? 'ok' : 'warn'));
+      const hasTarget = !!(obj && obj.targetSid != null);
+      if (hasTarget) {
+        const targ = obj.targetSid;
+        const ok = v != null && Math.abs(v - targ) <= MC2_TUNING.sidLockTolCm;
+        items.push(readoutEl('SID→' + targ,
+          v != null ? v.toFixed(0) + ' cm' : '—',
+          v == null ? 'bad' : ok ? 'ok' : 'warn'));
+      } else {
+        // No target SID (Final Test) — user is free to pick within range.
+        // Show value with a neutral 'ok' status so it doesn't read as "wrong".
+        items.push(readoutEl('SID',
+          v != null ? v.toFixed(0) + ' cm' : '—',
+          v == null ? 'bad' : 'ok'));
+      }
     } else if (t === 'ssd') {
       const v = pose ? (pose.sidCm - MC2_TUNING.patientThicknessCm) : null;
       const ok = v != null && v >= MC2_TUNING.ssdMinCm;
