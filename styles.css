@@ -525,27 +525,48 @@ html, body {
   border-radius: 0 4px 4px 0;
 }
 
-.exam-card-specs { display: flex; flex-direction: column; gap: 14px; }
-.spec-row {
-  display: flex; align-items: baseline; justify-content: space-between;
+.exam-card-specs { display: flex; flex-direction: column; gap: 18px; }
+
+/* A "section" groups a category label with its stat(s) — gives breathing room
+   and a clear hierarchy: Distance / Recommended settings. */
+.spec-section { display: flex; flex-direction: column; gap: 10px; }
+.spec-section-label {
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--oxos-text-faded);
 }
-.spec-row.half { flex: 1; }
-.spec-pair { display: flex; gap: 14px; }
+
+/* Each stat = small label above large value, tightly grouped so the eye
+   reads them as one unit (no space-between gap). */
+.spec-stat {
+  display: flex; flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  line-height: 1;
+}
+.spec-stat-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
 .spec-label {
   font-size: 11px; font-weight: 700;
-  letter-spacing: 2px; text-transform: uppercase;
+  letter-spacing: 1.5px; text-transform: uppercase;
   color: var(--oxos-blue-soft);
 }
 .spec-value {
-  font-size: 26px; font-weight: 800;
+  font-size: 30px; font-weight: 800;
   letter-spacing: -0.5px;
   color: var(--text);
   font-variant-numeric: tabular-nums;
+  line-height: 1.15;
 }
+
 .spec-divider {
   height: 1px;
   background: rgba(255,255,255,0.10);
 }
+
 .spec-mode-tabs {
   display: flex; gap: 6px;
   background: rgba(0,0,0,0.25);
@@ -607,8 +628,9 @@ html, body {
 @media (max-width: 520px) {
   .exam-screen-title h2 { font-size: 20px; }
   .exam-card { padding: 16px; gap: 14px; }
-  .exam-card-illus { max-width: 280px; }
-  .spec-value { font-size: 22px; }
+  .exam-card-illus { max-width: 260px; }
+  .exam-card-specs { gap: 14px; }
+  .spec-value { font-size: 26px; }
   .exam-start-label { font-size: 18px; letter-spacing: 3px; }
   .exam-start-icon { width: 42px; height: 42px; }
   .exam-start-btn { padding: 18px 24px 16px 24px; }
@@ -1122,6 +1144,71 @@ html, body {
   font-size: 13px; font-weight: 700;
 }
 .secondary-btn:active { background: rgba(255,255,255,0.12); }
+/* ===================================================================
+   EXAM REFERENCE CARD (HUD) — compact recommended-settings reference
+   shown only when a Simulated Exam is active.  Live-updates on mode tap.
+   =================================================================== */
+#exam-ref-card {
+  width: 100%; max-width: 460px;
+  margin-bottom: 6px;
+  background: linear-gradient(180deg,
+              rgba(89,92,255,0.10) 0%,
+              rgba(89,92,255,0.03) 100%);
+  border: 1px solid var(--oxos-blue-edge);
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex; flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+}
+.exam-ref-head {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+}
+.exam-ref-overline {
+  font-size: 9px; font-weight: 700;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--oxos-blue-soft);
+  opacity: 0.85;
+}
+.exam-ref-name {
+  flex: 1; min-width: 0;
+  font-size: 13px; font-weight: 700;
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.exam-ref-mode {
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--oxos-blue-soft);
+  background: var(--oxos-blue-dim);
+  border: 1px solid var(--oxos-blue-edge);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+.exam-ref-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.exam-ref-stat {
+  display: flex; flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  line-height: 1;
+}
+.exam-ref-label {
+  font-size: 9px; font-weight: 700;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--oxos-text-faded);
+}
+.exam-ref-value {
+  font-size: 18px; font-weight: 800;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.3px;
+}
+
 /* EXPOSE trigger — OXOS brand styling.  Default state reads "ready/standby"
    in OXOS blue (matching the brand); armed state shifts to the green safety
    semantic when conditions are met.  Slightly larger radius + tighter

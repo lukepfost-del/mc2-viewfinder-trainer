@@ -131,26 +131,35 @@
         </div>
       </div>
       <div class="exam-card-specs">
-        <div class="spec-row">
-          <div class="spec-label">SID</div>
-          <div class="spec-value" id="exam-spec-sid">—</div>
+        <div class="spec-section">
+          <div class="spec-section-label">Distance</div>
+          <div class="spec-stat">
+            <div class="spec-label">SID</div>
+            <div class="spec-value" id="exam-spec-sid">&mdash;</div>
+          </div>
         </div>
+
         <div class="spec-divider"></div>
-        <div class="spec-mode-tabs" id="exam-mode-tabs">
-          <button class="spec-mode-tab active" data-mode="single">Single</button>
-          <button class="spec-mode-tab" data-mode="ddr">DDR</button>
-          <button class="spec-mode-tab" data-mode="fluoro">Fluoro</button>
-        </div>
-        <div class="spec-pair">
-          <div class="spec-row half">
-            <div class="spec-label">kV</div>
-            <div class="spec-value" id="exam-spec-kv">—</div>
+
+        <div class="spec-section">
+          <div class="spec-section-label">Recommended settings</div>
+          <div class="spec-mode-tabs" id="exam-mode-tabs">
+            <button class="spec-mode-tab active" data-mode="single">Single</button>
+            <button class="spec-mode-tab" data-mode="ddr">DDR</button>
+            <button class="spec-mode-tab" data-mode="fluoro">Fluoro</button>
           </div>
-          <div class="spec-row half">
-            <div class="spec-label">mAs</div>
-            <div class="spec-value" id="exam-spec-mas">—</div>
+          <div class="spec-stat-row">
+            <div class="spec-stat">
+              <div class="spec-label">kV</div>
+              <div class="spec-value" id="exam-spec-kv">&mdash;</div>
+            </div>
+            <div class="spec-stat">
+              <div class="spec-label">mAs</div>
+              <div class="spec-value" id="exam-spec-mas">&mdash;</div>
+            </div>
           </div>
         </div>
+
         <div class="exam-notes hidden" id="exam-notes"></div>
       </div>
     </div>
@@ -266,6 +275,30 @@
       <div class="feedback-label" id="feedback-label">Aim at the cassette</div>
     </div>
     <div class="live-readouts" id="live-readouts"></div>
+  </div>
+
+  <!-- EXAM REFERENCE CARD (Simulated Exam only): recommended kV/mAs for the
+       current HUD mode.  Live-updates when the user taps the mode zone. -->
+  <div id="exam-ref-card" class="hidden">
+    <div class="exam-ref-head">
+      <div class="exam-ref-overline">Recommended</div>
+      <div class="exam-ref-name" id="exam-ref-name"></div>
+      <div class="exam-ref-mode" id="exam-ref-mode">Single</div>
+    </div>
+    <div class="exam-ref-stats">
+      <div class="exam-ref-stat">
+        <div class="exam-ref-label">kV</div>
+        <div class="exam-ref-value" id="exam-ref-kv">&mdash;</div>
+      </div>
+      <div class="exam-ref-stat">
+        <div class="exam-ref-label">mAs</div>
+        <div class="exam-ref-value" id="exam-ref-mas">&mdash;</div>
+      </div>
+      <div class="exam-ref-stat">
+        <div class="exam-ref-label">SID</div>
+        <div class="exam-ref-value" id="exam-ref-sid">&mdash;</div>
+      </div>
+    </div>
   </div>
 
   <!-- BOTTOM ACTION ROW: Skip (tutorial) or EXPOSE (play / final tutorial) -->

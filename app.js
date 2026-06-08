@@ -76,6 +76,15 @@ const examModeTabs       = document.getElementById('exam-mode-tabs');
 const examNotes          = document.getElementById('exam-notes');
 const examStartBtn       = document.getElementById('exam-start-btn');
 
+// HUD reference card for Simulated Exam (shown below feedback strip when a
+// currentExam is active; live-updates on mode tap).
+const examRefCard  = document.getElementById('exam-ref-card');
+const examRefName  = document.getElementById('exam-ref-name');
+const examRefMode  = document.getElementById('exam-ref-mode');
+const examRefKv    = document.getElementById('exam-ref-kv');
+const examRefMas   = document.getElementById('exam-ref-mas');
+const examRefSid   = document.getElementById('exam-ref-sid');
+
 const appShell      = document.getElementById('app');
 const backBtn       = document.getElementById('back-btn');
 const muteBtn       = document.getElementById('mute-btn');
@@ -1094,6 +1103,9 @@ function startTutorial() {
   state.awaitingReset = false;
   state.prevArmed = false;
   state.paused = false;
+  // Tutorial never has an exam context — clear any lingering one and hide ref.
+  state.currentExam = null;
+  updateExamRefCard();
   setLevelUI();
   enterApp();
 }
@@ -1108,13 +1120,19 @@ function startPlay(opts) {
   promptStep.textContent = '';
   promptText.textContent = '';
   promptHint.textContent = '';
-  levelPill.textContent  = 'PLAY';
+  // If a Simulated Exam is in flight, badge the pill with the exam name;
+  // otherwise show generic PLAY.
+  levelPill.textContent = (state.currentExam && state.currentExam.name)
+    ? state.currentExam.name
+    : 'PLAY';
   skipBtn.classList.add('hidden');
   triggerBtn.classList.remove('hidden', 'armed');
   // Hide tutorial-only UI
   tutTarget.classList.add('hidden');
   holdMeter.style.display = 'none';
   liveReadouts.style.display = 'flex';
+  // v24.1: surface the exam reference card if we have one.
+  updateExamRefCard();
   // If transitioning from tutorial, camera is already running — don't restart it
   if (opts.keepCamera) {
     appShell.classList.remove('hidden');
@@ -1122,6 +1140,34 @@ function startPlay(opts) {
   } else {
     enterApp();
   }
+}
+
+// v24.1: render the exam reference card under the HUD.  Looks up the current
+// HUD mode (state.modes[state.modeIdx]), maps to the exam's settings key,
+// and writes kV/mAs/SID into the reference card.  Hides the card when no
+// exam is active or when the current mode has no recommendation (e.g. Photo).
+function updateExamRefCard() {
+  const ex = state.currentExam;
+  if (!ex || state.mode !== MODE.PLAY) {
+    examRefCard.classList.add('hidden');
+    return;
+  }
+  const modeName = state.modes[state.modeIdx] || '';
+  const modeKey  = modeName.toLowerCase();      // 'single' | 'ddr' | 'fluoro' | 'photo'
+  const cfg = ex.settings && ex.settings[modeKey];
+  examRefName.textContent = ex.name || '';
+  examRefMode.textContent = modeName;
+  examRefSid.textContent  = ex.sidCm + ' cm';
+  if (cfg) {
+    examRefKv.textContent  = cfg.kV;
+    examRefMas.textContent = cfg.mAs;
+  } else {
+    // Mode not in exam settings (e.g. Photo).  Keep the card visible but
+    // show "—" for kV/mAs so the user knows this mode isn't covered.
+    examRefKv.textContent  = '—';
+    examRefMas.textContent = '—';
+  }
+  examRefCard.classList.remove('hidden');
 }
 
 function setLevelUI() {
@@ -1534,6 +1580,8 @@ function showStartScreen() {
   examSectionsScreen.classList.add('hidden');
   examViewsScreen.classList.add('hidden');
   examDetailScreen.classList.add('hidden');
+  // v24.1: hide HUD reference card whenever we land back on route picker.
+  examRefCard.classList.add('hidden');
   startScreen.classList.remove('hidden');
   renderTileStars();
   viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid','armed','blocked','searching');
@@ -1548,6 +1596,9 @@ routeTutorial.addEventListener('click', function () {
 });
 routePlay.addEventListener('click', function () {
   try { MC2Audio.unlock(); } catch (e) { mc2Status('Audio unlock failed: ' + e, 'error'); }
+  // Plain Play tap (not via Simulated Exam) — clear any lingering exam so
+  // the reference card doesn't leak from a previous session.
+  state.currentExam = null;
   try { startPlay(); } catch (e) { mc2Status('startPlay threw: ' + (e && e.message), 'error'); }
 });
 routeExam.addEventListener('click', function () {
@@ -1717,15 +1768,27 @@ examStartBtn.addEventListener('click', function () {
   const exam = section && section.exams.find(function (x) { return x.id === examState.selectedExamId; });
   if (!exam) return;
   // Stash on state for the HUD to read once the artwork pipeline lands.
+  // Full settings map kept so the HUD reference card can swap kV/mAs values
+  // when the user taps the mode zone (Single ↔ DDR ↔ Fluoro).
   state.currentExam = {
     id: exam.id, name: exam.name, anatomy: exam.anatomy, view: exam.view,
     sidCm: exam.sidCm,
-    mode: examState.selectedMode,
-    targetKv:  exam.settings[examState.selectedMode].kV,
-    targetMas: exam.settings[examState.selectedMode].mAs,
+    initialMode: examState.selectedMode,
+    settings: exam.settings,   // { single:{kV,mAs}, ddr:{...}, fluoro:{...} }
     assetSvg:  exam.assetSvg,
     notes:     exam.notes,
   };
+  // Sync the HUD mode to the mode the user picked on the detail card so the
+  // recommended values match what they were just looking at.
+  const modeIdx = state.modes.findIndex(function (m) {
+    return m.toLowerCase() === examState.selectedMode.toLowerCase();
+  });
+  if (modeIdx >= 0) {
+    state.modeIdx = modeIdx;
+    if (typeof modeValEl !== 'undefined' && modeValEl) {
+      modeValEl.textContent = state.modes[modeIdx];
+    }
+  }
   hideAllExamScreens();
   try { MC2Audio.unlock(); } catch (e) {}
   try { startPlay(); } catch (e) { mc2Status('startPlay threw: ' + (e && e.message), 'error'); }
@@ -1754,6 +1817,8 @@ document.querySelectorAll('[data-act]').forEach(function (el) {
     } else if (act === 'mode') {
       state.modeIdx = (state.modeIdx + 1) % state.modes.length;
       modeValEl.textContent = state.modes[state.modeIdx];
+      // v24.1: keep exam reference card synced with current HUD mode.
+      updateExamRefCard();
     }
   });
 });
