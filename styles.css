@@ -130,12 +130,22 @@ html, body {
 #start-screen {
   position: fixed; inset: 0; z-index: 50;
   background: var(--oxos-slate);
-  display: flex; align-items: center; justify-content: center;
-  padding: max(env(safe-area-inset-top, 0px), 28px) 20px max(env(safe-area-inset-bottom, 0px), 28px);
+  /* Center-if-fits / top-align-if-not pattern.  The naive
+     `display: flex; align-items: center` clips the top of content taller
+     than the viewport because the centering pushes it above the scrollable
+     area.  Using `display: flex; flex-direction: column` + `margin: auto`
+     on the inner content gives true conditional centering — the inner gets
+     equal top/bottom margins when there's space, and falls back to
+     top-aligned (margins collapse to 0) when content overflows. */
+  display: flex; flex-direction: column;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: max(env(safe-area-inset-top, 0px), 24px) 18px
+          max(env(safe-area-inset-bottom, 0px), 24px);
 }
 .start-inner {
   max-width: 760px; width: 100%;
+  margin: auto;  /* conditional center; top-aligned when content > viewport */
 }
 
 .route-tiles {
@@ -260,9 +270,19 @@ html, body {
 .route-tile:hover .tile-cta-primary { filter: brightness(1.12); box-shadow: 0 6px 18px rgba(89,92,255,0.45); }
 .route-tile:hover .tile-cta-secondary { background: rgba(89,92,255,0.10); border-color: var(--oxos-blue); color: #fff; }
 
-/* Mobile: stack tiles vertically when too narrow */
+/* Mobile: stack tiles vertically when too narrow, tighten density so the
+   page fits the viewport without needing to scroll on most phones. */
 @media (max-width: 520px) {
-  .route-tiles { grid-template-columns: 1fr; }
+  .route-tiles { grid-template-columns: 1fr; gap: 12px; margin-bottom: 20px; }
+  .route-tile { padding: 20px 18px 18px 18px; }
+  .tile-title { font-size: 20px; }
+  .tile-list { font-size: 12.5px; margin-top: 12px; line-height: 1.55; }
+  .tile-list li { margin: 4px 0; }
+  .tile-cta-primary,
+  .tile-cta-secondary { padding: 11px 16px; font-size: 12.5px; }
+  .print-card { padding: 16px 18px 14px 18px; }
+  .print-card-text { margin-bottom: 12px; font-size: 12.5px; }
+  .credit { margin-top: 18px; }
 }
 
 .print-card {
