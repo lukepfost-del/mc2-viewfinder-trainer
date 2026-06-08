@@ -148,30 +148,46 @@ html, body {
 .route-tile {
   position: relative;
   width: 100%;
-  background: rgba(255,255,255,0.025);
-  border: 1px solid rgba(255,255,255,0.10);
+  /* Subtle gradient + light border + drop shadow gives a "raised" button feel
+     instead of a flat info card. */
+  background: linear-gradient(180deg,
+              rgba(255,255,255,0.045) 0%,
+              rgba(255,255,255,0.015) 100%);
+  border: 1px solid rgba(255,255,255,0.16);
   border-radius: 16px;
   padding: 26px 22px 22px 22px;
   color: var(--text);
   text-align: left;
   display: flex; flex-direction: column;
   cursor: pointer;
-  transition: transform 100ms ease, border-color 200ms ease, background 200ms ease;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.35);
+  transition: transform 120ms ease, border-color 200ms ease,
+              background 200ms ease, box-shadow 200ms ease;
   overflow: hidden;
+  font-family: inherit;  /* override <button> ua font */
 }
 .route-tile::after {
   /* Brand accent stripe at top of each tile */
   content: '';
-  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
   background: var(--oxos-blue);
-  opacity: 0.55;
+  opacity: 0.65;
   transition: opacity 200ms ease;
 }
-.route-tile:active { transform: scale(0.985); }
-.route-tile:hover { border-color: var(--oxos-blue-edge); background: rgba(89,92,255,0.04); }
+.route-tile:hover {
+  transform: translateY(-3px);
+  border-color: var(--oxos-blue-edge);
+  background: linear-gradient(180deg,
+              rgba(89,92,255,0.08) 0%,
+              rgba(89,92,255,0.02) 100%);
+  box-shadow: 0 12px 30px rgba(89,92,255,0.22);
+}
 .route-tile:hover::after { opacity: 1; }
-.route-tile.tutorial { /* same brand treatment for both — distinction by content, not color */ }
-.route-tile.play     { }
+.route-tile:active {
+  transform: translateY(1px) scale(0.99);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+  transition-duration: 60ms;
+}
 .tile-title {
   font-size: 22px; font-weight: 800; letter-spacing: -0.2px;
   color: var(--text);
@@ -210,6 +226,39 @@ html, body {
   color: var(--amber);
   font-variant-numeric: tabular-nums;
 }
+
+/* Explicit "Start" CTA inside each tile — pushes the affordance from
+   "info card" to "obvious button you should press". */
+.tile-cta {
+  margin-top: auto;     /* glue to bottom of flex column */
+  padding-top: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.tile-cta-primary {
+  margin-top: 18px;
+  background: var(--oxos-blue);
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(89,92,255,0.35);
+  transition: filter 150ms ease, box-shadow 200ms ease;
+}
+.tile-cta-secondary {
+  margin-top: 18px;
+  background: transparent;
+  color: var(--oxos-blue-soft);
+  padding: 12px 18px;
+  border-radius: 10px;
+  border: 1.5px solid var(--oxos-blue-edge);
+  transition: background 200ms ease, border-color 200ms ease, color 200ms ease;
+}
+.route-tile:hover .tile-cta-primary { filter: brightness(1.12); box-shadow: 0 6px 18px rgba(89,92,255,0.45); }
+.route-tile:hover .tile-cta-secondary { background: rgba(89,92,255,0.10); border-color: var(--oxos-blue); color: #fff; }
 
 /* Mobile: stack tiles vertically when too narrow */
 @media (max-width: 520px) {
