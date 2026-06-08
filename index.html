@@ -52,6 +52,17 @@
         <div class="tile-sub">Free practice with the full system</div>
         <div class="tile-cta tile-cta-secondary">Open Practice &rarr;</div>
       </button>
+      <button class="route-tile exam" id="route-exam">
+        <div class="tile-title">Simulated Exam</div>
+        <div class="tile-sub">Practice real radiograph views</div>
+        <ul class="tile-list">
+          <li>Pick anatomy &mdash; hand, foot, wrist, knee&hellip;</li>
+          <li>Pick view &mdash; PA, oblique, lateral</li>
+          <li>Match recommended kV, mAs, and SID</li>
+          <li>Aim, expose, see your captured image</li>
+        </ul>
+        <div class="tile-cta tile-cta-secondary">Choose Anatomy &rarr;</div>
+      </button>
     </div>
 
     <div class="print-card">
@@ -65,6 +76,94 @@
     </div>
 
     <p class="credit">Built by the <strong>Advanced Concepts</strong> team &middot; OXOS Medical</p>
+  </div>
+</div>
+
+<!-- =================================================================== -->
+<!-- SIMULATED EXAM: section picker → exam picker → exam detail card     -->
+<!-- =================================================================== -->
+
+<!-- Section picker (anatomy categories) -->
+<div id="exam-sections" class="hidden exam-screen">
+  <div class="exam-screen-inner">
+    <div class="exam-screen-header">
+      <button class="exam-back" data-back-to="start">&larr;</button>
+      <div class="exam-screen-title">
+        <div class="exam-overline">Simulated Exam</div>
+        <h2>Choose Anatomy</h2>
+      </div>
+    </div>
+    <div class="exam-section-list" id="exam-section-list"></div>
+  </div>
+</div>
+
+<!-- Exam picker (views within a section) -->
+<div id="exam-views" class="hidden exam-screen">
+  <div class="exam-screen-inner">
+    <div class="exam-screen-header">
+      <button class="exam-back" data-back-to="exam-sections">&larr;</button>
+      <div class="exam-screen-title">
+        <div class="exam-overline" id="exam-views-overline">Section</div>
+        <h2 id="exam-views-title">Choose View</h2>
+      </div>
+    </div>
+    <div class="exam-view-list" id="exam-view-list"></div>
+  </div>
+</div>
+
+<!-- Exam detail card -->
+<div id="exam-detail" class="hidden exam-screen">
+  <div class="exam-screen-inner">
+    <div class="exam-screen-header">
+      <button class="exam-back" data-back-to="exam-views">&larr;</button>
+      <div class="exam-screen-title">
+        <div class="exam-overline" id="exam-detail-overline">Section</div>
+        <h2 id="exam-detail-title">Exam</h2>
+      </div>
+    </div>
+
+    <div class="exam-card">
+      <div class="exam-card-illus">
+        <img id="exam-card-img" alt="" />
+        <div class="exam-card-illus-placeholder" id="exam-card-placeholder">
+          <div class="placeholder-cassette"></div>
+          <div class="placeholder-label">Anatomy artwork pending</div>
+        </div>
+      </div>
+      <div class="exam-card-specs">
+        <div class="spec-row">
+          <div class="spec-label">SID</div>
+          <div class="spec-value" id="exam-spec-sid">—</div>
+        </div>
+        <div class="spec-divider"></div>
+        <div class="spec-mode-tabs" id="exam-mode-tabs">
+          <button class="spec-mode-tab active" data-mode="single">Single</button>
+          <button class="spec-mode-tab" data-mode="ddr">DDR</button>
+          <button class="spec-mode-tab" data-mode="fluoro">Fluoro</button>
+        </div>
+        <div class="spec-pair">
+          <div class="spec-row half">
+            <div class="spec-label">kV</div>
+            <div class="spec-value" id="exam-spec-kv">—</div>
+          </div>
+          <div class="spec-row half">
+            <div class="spec-label">mAs</div>
+            <div class="spec-value" id="exam-spec-mas">—</div>
+          </div>
+        </div>
+        <div class="exam-notes hidden" id="exam-notes"></div>
+      </div>
+    </div>
+
+    <button class="exam-start-btn" id="exam-start-btn">
+      <svg class="exam-start-icon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <rect x="9" y="8" width="30" height="32" rx="3" stroke="currentColor" stroke-width="2.5" fill="none"/>
+        <line x1="18" y1="4" x2="18" y2="11" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="30" y1="4" x2="30" y2="11" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M20 14 C20 18, 22 19, 22 22 C22 25, 19 28, 19 32 L29 32 C29 28, 26 25, 26 22 C26 19, 28 18, 28 14 Z" fill="currentColor"/>
+      </svg>
+      <span class="exam-start-label">Start Exam</span>
+    </button>
   </div>
 </div>
 
@@ -181,6 +280,7 @@
 <script src="assets/aruco.js"></script>
 <script src="assets/aruco-dict.js"></script>
 <script src="levels.js"></script>
+<script src="exams.js"></script>
 <script src="audio.js"></script>
 <script src="app.js"></script>
 </body>

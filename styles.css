@@ -149,12 +149,21 @@ html, body {
 }
 
 .route-tiles {
+  /* 3 tiles now: Tutorial (long bullet list), Play (compact), Simulated Exam
+     (medium bullet list).  Tutorial spans the full top row; Play + Simulated
+     Exam share the bottom row on desktop.  Mobile stacks all three. */
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    "tutorial tutorial"
+    "play     exam";
   gap: 16px;
   margin-bottom: 28px;
   align-items: stretch;
 }
+.route-tile.tutorial { grid-area: tutorial; }
+.route-tile.play     { grid-area: play; }
+.route-tile.exam     { grid-area: exam; }
 .route-tile {
   position: relative;
   width: 100%;
@@ -273,7 +282,14 @@ html, body {
 /* Mobile: stack tiles vertically when too narrow, tighten density so the
    page fits the viewport without needing to scroll on most phones. */
 @media (max-width: 520px) {
-  .route-tiles { grid-template-columns: 1fr; gap: 12px; margin-bottom: 20px; }
+  .route-tiles {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "tutorial"
+      "play"
+      "exam";
+    gap: 12px; margin-bottom: 20px;
+  }
   .route-tile { padding: 20px 18px 18px 18px; }
   .tile-title { font-size: 20px; }
   .tile-list { font-size: 12.5px; margin-top: 12px; line-height: 1.55; }
@@ -339,6 +355,263 @@ html, body {
 .credit strong {
   color: var(--text-soft);
   font-weight: 700;
+}
+
+/* ===================================================================
+   SIMULATED EXAM — section / view / detail screens
+   =================================================================== */
+.exam-screen {
+  position: fixed; inset: 0; z-index: 50;
+  background: var(--oxos-slate);
+  display: flex; flex-direction: column;
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: max(env(safe-area-inset-top, 0px), 18px) 18px
+          max(env(safe-area-inset-bottom, 0px), 18px);
+}
+.exam-screen-inner {
+  max-width: 760px; width: 100%;
+  margin: 0 auto;
+  display: flex; flex-direction: column; gap: 18px;
+}
+.exam-screen-header {
+  display: flex; align-items: center; gap: 14px;
+  padding-bottom: 8px;
+}
+.exam-back {
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: var(--text);
+  font-size: 22px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background 200ms ease, border-color 200ms ease, transform 80ms ease;
+}
+.exam-back:hover {
+  background: rgba(89,92,255,0.10);
+  border-color: var(--oxos-blue-edge);
+}
+.exam-back:active { transform: scale(0.94); }
+.exam-screen-title { flex: 1; min-width: 0; }
+.exam-overline {
+  font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  font-weight: 700; color: var(--oxos-blue-soft);
+  margin-bottom: 4px;
+}
+.exam-screen-title h2 {
+  margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.3px;
+  color: var(--text);
+}
+
+/* Section list (5 anatomy categories) */
+.exam-section-list,
+.exam-view-list {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.exam-section-row,
+.exam-view-row {
+  width: 100%;
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  padding: 16px 18px;
+  color: var(--text);
+  text-align: left;
+  display: flex; align-items: center; gap: 12px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  transition: background 200ms ease, border-color 200ms ease, transform 100ms ease;
+  font-family: inherit;
+}
+.exam-section-row:hover,
+.exam-view-row:hover {
+  background: linear-gradient(180deg, rgba(89,92,255,0.08), rgba(89,92,255,0.02));
+  border-color: var(--oxos-blue-edge);
+}
+.exam-section-row:active,
+.exam-view-row:active { transform: scale(0.99); }
+
+.exam-section-row-text {
+  flex: 1; min-width: 0;
+}
+.exam-section-row-title {
+  font-size: 16px; font-weight: 700; color: var(--text);
+}
+.exam-section-row-sub {
+  font-size: 12px; color: var(--oxos-text-faded);
+  margin-top: 2px;
+}
+.exam-section-row-count {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--oxos-blue-soft);
+  background: var(--oxos-blue-dim);
+  border: 1px solid var(--oxos-blue-edge);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+.exam-section-row-arrow,
+.exam-view-row-arrow {
+  color: var(--oxos-blue-soft);
+  font-size: 18px;
+  opacity: 0.7;
+}
+
+/* Per-view rows under a section */
+.exam-view-row-text { flex: 1; min-width: 0; }
+.exam-view-row-anatomy {
+  font-size: 16px; font-weight: 700; color: var(--text);
+}
+.exam-view-row-projection {
+  font-size: 12px; color: var(--oxos-blue-soft);
+  text-transform: uppercase; letter-spacing: 1.2px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+/* Exam detail card (the "spec sheet" before Start) */
+.exam-card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.01));
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex; flex-direction: column; gap: 18px;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.35);
+}
+.exam-card-illus {
+  position: relative;
+  width: 100%; aspect-ratio: 1 / 1;
+  max-width: 320px; align-self: center;
+  background: rgba(0,0,0,0.18);
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.06);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.exam-card-illus img {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.exam-card-illus img:not([src]),
+.exam-card-illus img[src=""] { display: none; }
+.exam-card-illus-placeholder {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 12px;
+  color: var(--oxos-text-faded);
+  font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+  text-align: center;
+}
+.placeholder-cassette {
+  width: 60%; aspect-ratio: 1 / 1;
+  border: 2px solid rgba(171,209,255,0.25);
+  border-radius: 14px;
+  position: relative;
+}
+.placeholder-cassette::before,
+.placeholder-cassette::after {
+  content: ''; position: absolute;
+  background: rgba(171,209,255,0.25);
+}
+.placeholder-cassette::before {
+  left: -8px; top: 35%; width: 8px; height: 30%;
+  border-radius: 4px 0 0 4px;
+}
+.placeholder-cassette::after {
+  right: -8px; top: 35%; width: 8px; height: 30%;
+  border-radius: 0 4px 4px 0;
+}
+
+.exam-card-specs { display: flex; flex-direction: column; gap: 14px; }
+.spec-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+}
+.spec-row.half { flex: 1; }
+.spec-pair { display: flex; gap: 14px; }
+.spec-label {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--oxos-blue-soft);
+}
+.spec-value {
+  font-size: 26px; font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.spec-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.10);
+}
+.spec-mode-tabs {
+  display: flex; gap: 6px;
+  background: rgba(0,0,0,0.25);
+  border-radius: 10px;
+  padding: 4px;
+}
+.spec-mode-tab {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  color: var(--oxos-text-faded);
+  padding: 8px 10px;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase;
+  border-radius: 7px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 200ms ease, color 200ms ease;
+}
+.spec-mode-tab.active {
+  background: var(--oxos-blue);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(89,92,255,0.35);
+}
+.spec-mode-tab:hover:not(.active) { color: var(--oxos-blue-soft); }
+.exam-notes {
+  font-size: 12px; line-height: 1.55;
+  color: var(--text-soft);
+  background: rgba(255,179,2,0.08);
+  border: 1px solid rgba(255,179,2,0.25);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+/* Start Exam button (modeled on Unique Button.svg — OXOS blue rounded
+   rect with X-ray glyph + START label) */
+.exam-start-btn {
+  margin-top: 6px;
+  background: var(--oxos-blue);
+  border: 0;
+  border-radius: 16px;
+  color: #fff;
+  padding: 22px 32px 20px 32px;
+  cursor: pointer;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px;
+  box-shadow: 0 8px 22px rgba(89,92,255,0.45);
+  transition: filter 150ms ease, transform 100ms ease, box-shadow 200ms ease;
+  font-family: inherit;
+}
+.exam-start-icon { width: 52px; height: 52px; }
+.exam-start-label {
+  font-size: 22px; font-weight: 800;
+  letter-spacing: 4px; text-transform: uppercase;
+}
+.exam-start-btn:hover { filter: brightness(1.10); box-shadow: 0 12px 28px rgba(89,92,255,0.55); }
+.exam-start-btn:active { transform: translateY(2px) scale(0.99); box-shadow: 0 3px 10px rgba(89,92,255,0.35); }
+
+@media (max-width: 520px) {
+  .exam-screen-title h2 { font-size: 20px; }
+  .exam-card { padding: 16px; gap: 14px; }
+  .exam-card-illus { max-width: 280px; }
+  .spec-value { font-size: 22px; }
+  .exam-start-label { font-size: 18px; letter-spacing: 3px; }
+  .exam-start-icon { width: 42px; height: 42px; }
+  .exam-start-btn { padding: 18px 24px 16px 24px; }
 }
 
 /* ===================================================================

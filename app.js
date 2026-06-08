@@ -54,7 +54,27 @@ const welcomeScreen = document.getElementById('welcome-screen');
 const startScreen   = document.getElementById('start-screen');
 const routeTutorial = document.getElementById('route-tutorial');
 const routePlay     = document.getElementById('route-play');
+const routeExam     = document.getElementById('route-exam');
 const tileStars     = document.getElementById('tile-stars');
+
+// Simulated Exam screens
+const examSectionsScreen = document.getElementById('exam-sections');
+const examViewsScreen    = document.getElementById('exam-views');
+const examDetailScreen   = document.getElementById('exam-detail');
+const examSectionList    = document.getElementById('exam-section-list');
+const examViewList       = document.getElementById('exam-view-list');
+const examViewsOverline  = document.getElementById('exam-views-overline');
+const examViewsTitle     = document.getElementById('exam-views-title');
+const examDetailOverline = document.getElementById('exam-detail-overline');
+const examDetailTitle    = document.getElementById('exam-detail-title');
+const examCardImg        = document.getElementById('exam-card-img');
+const examCardPlaceholder= document.getElementById('exam-card-placeholder');
+const examSpecSid        = document.getElementById('exam-spec-sid');
+const examSpecKv         = document.getElementById('exam-spec-kv');
+const examSpecMas        = document.getElementById('exam-spec-mas');
+const examModeTabs       = document.getElementById('exam-mode-tabs');
+const examNotes          = document.getElementById('exam-notes');
+const examStartBtn       = document.getElementById('exam-start-btn');
 
 const appShell      = document.getElementById('app');
 const backBtn       = document.getElementById('back-btn');
@@ -1510,6 +1530,10 @@ function showStartScreen() {
   // (whether from app-shell back button or first-load chain).
   bootScreen.classList.add('hidden');
   welcomeScreen.classList.add('hidden');
+  // v24: also hide exam screens so back-from-HUD lands cleanly on routes.
+  examSectionsScreen.classList.add('hidden');
+  examViewsScreen.classList.add('hidden');
+  examDetailScreen.classList.add('hidden');
   startScreen.classList.remove('hidden');
   renderTileStars();
   viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid','armed','blocked','searching');
@@ -1524,6 +1548,186 @@ routeTutorial.addEventListener('click', function () {
 });
 routePlay.addEventListener('click', function () {
   try { MC2Audio.unlock(); } catch (e) { mc2Status('Audio unlock failed: ' + e, 'error'); }
+  try { startPlay(); } catch (e) { mc2Status('startPlay threw: ' + (e && e.message), 'error'); }
+});
+routeExam.addEventListener('click', function () {
+  try { MC2Audio.unlock(); } catch (e) {}
+  showExamSections();
+});
+
+// ============================================================================
+// Simulated Exam navigation
+// ============================================================================
+const examState = {
+  selectedSectionId: null,
+  selectedExamId:    null,
+  selectedMode:      'single',  // single | ddr | fluoro
+};
+
+function hideAllExamScreens() {
+  examSectionsScreen.classList.add('hidden');
+  examViewsScreen.classList.add('hidden');
+  examDetailScreen.classList.add('hidden');
+}
+
+function showExamSections() {
+  startScreen.classList.add('hidden');
+  hideAllExamScreens();
+  renderExamSections();
+  examSectionsScreen.classList.remove('hidden');
+  examSectionsScreen.scrollTop = 0;
+}
+
+function showExamViews(sectionId) {
+  examState.selectedSectionId = sectionId;
+  const section = window.MC2_EXAMS_BY_SECTION[sectionId];
+  if (!section) return;
+  examViewsOverline.textContent = 'Simulated Exam';
+  examViewsTitle.textContent = section.label;
+  renderExamViews(section);
+  hideAllExamScreens();
+  examViewsScreen.classList.remove('hidden');
+  examViewsScreen.scrollTop = 0;
+}
+
+function showExamDetail(sectionId, examId) {
+  const section = window.MC2_EXAMS_BY_SECTION[sectionId];
+  if (!section) return;
+  const exam = section.exams.find(function (e) { return e.id === examId; });
+  if (!exam) return;
+  examState.selectedSectionId = sectionId;
+  examState.selectedExamId    = examId;
+  examState.selectedMode      = 'single';
+  renderExamDetail(exam, section);
+  hideAllExamScreens();
+  examDetailScreen.classList.remove('hidden');
+  examDetailScreen.scrollTop = 0;
+}
+
+function renderExamSections() {
+  examSectionList.innerHTML = '';
+  window.MC2_EXAM_SECTIONS.forEach(function (s) {
+    const section = window.MC2_EXAMS_BY_SECTION[s.id];
+    const count = section.exams.length;
+    const row = document.createElement('button');
+    row.className = 'exam-section-row';
+    row.innerHTML =
+      '<div class="exam-section-row-text">' +
+        '<div class="exam-section-row-title">' + s.label + '</div>' +
+        '<div class="exam-section-row-sub">' + s.sub + '</div>' +
+      '</div>' +
+      '<div class="exam-section-row-count">' + count + ' view' + (count === 1 ? '' : 's') + '</div>' +
+      '<div class="exam-section-row-arrow">&rarr;</div>';
+    row.addEventListener('click', function () { showExamViews(s.id); });
+    examSectionList.appendChild(row);
+  });
+}
+
+function renderExamViews(section) {
+  examViewList.innerHTML = '';
+  section.exams.forEach(function (exam) {
+    const row = document.createElement('button');
+    row.className = 'exam-view-row';
+    row.innerHTML =
+      '<div class="exam-view-row-text">' +
+        '<div class="exam-view-row-anatomy">' + exam.anatomy + '</div>' +
+        '<div class="exam-view-row-projection">' + exam.view + '</div>' +
+      '</div>' +
+      '<div class="exam-view-row-arrow">&rarr;</div>';
+    row.addEventListener('click', function () { showExamDetail(section.id, exam.id); });
+    examViewList.appendChild(row);
+  });
+}
+
+function renderExamDetail(exam, section) {
+  examDetailOverline.textContent = section.label;
+  examDetailTitle.textContent = exam.name;
+  examSpecSid.textContent = exam.sidCm + ' cm';
+
+  // Artwork: try to load, hide placeholder if it exists; otherwise show placeholder.
+  // We probe with an Image() so the swap is graceful when the file is missing.
+  examCardImg.style.display = 'none';
+  examCardPlaceholder.style.display = 'flex';
+  const probe = new Image();
+  probe.onload = function () {
+    examCardImg.src = exam.assetSvg;
+    examCardImg.style.display = 'block';
+    examCardPlaceholder.style.display = 'none';
+  };
+  probe.onerror = function () {
+    examCardImg.removeAttribute('src');
+    examCardImg.style.display = 'none';
+    examCardPlaceholder.style.display = 'flex';
+  };
+  probe.src = exam.assetSvg;
+
+  // Notes
+  if (exam.notes) {
+    examNotes.textContent = exam.notes;
+    examNotes.classList.remove('hidden');
+  } else {
+    examNotes.classList.add('hidden');
+  }
+
+  // Apply current mode to the kV/mAs display
+  applyExamMode(exam, examState.selectedMode);
+}
+
+function applyExamMode(exam, mode) {
+  examState.selectedMode = mode;
+  const s = exam.settings[mode];
+  examSpecKv.textContent  = s.kV;
+  examSpecMas.textContent = s.mAs;
+  // Update tab active state
+  examModeTabs.querySelectorAll('.spec-mode-tab').forEach(function (tab) {
+    tab.classList.toggle('active', tab.getAttribute('data-mode') === mode);
+  });
+}
+
+// Mode tab clicks
+examModeTabs.addEventListener('click', function (e) {
+  const tab = e.target.closest('.spec-mode-tab');
+  if (!tab) return;
+  const mode = tab.getAttribute('data-mode');
+  if (!mode) return;
+  const section = window.MC2_EXAMS_BY_SECTION[examState.selectedSectionId];
+  const exam = section && section.exams.find(function (x) { return x.id === examState.selectedExamId; });
+  if (exam) applyExamMode(exam, mode);
+});
+
+// Back buttons on exam screens
+document.querySelectorAll('.exam-back').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    const dest = btn.getAttribute('data-back-to');
+    hideAllExamScreens();
+    if (dest === 'start') {
+      showStartScreen();
+    } else if (dest === 'exam-sections') {
+      examSectionsScreen.classList.remove('hidden');
+    } else if (dest === 'exam-views') {
+      examViewsScreen.classList.remove('hidden');
+    }
+  });
+});
+
+// Start Exam → enters Play mode (the HUD); the recommended values are stored
+// in state for follow-up wiring of the anatomy overlay + settings matching.
+examStartBtn.addEventListener('click', function () {
+  const section = window.MC2_EXAMS_BY_SECTION[examState.selectedSectionId];
+  const exam = section && section.exams.find(function (x) { return x.id === examState.selectedExamId; });
+  if (!exam) return;
+  // Stash on state for the HUD to read once the artwork pipeline lands.
+  state.currentExam = {
+    id: exam.id, name: exam.name, anatomy: exam.anatomy, view: exam.view,
+    sidCm: exam.sidCm,
+    mode: examState.selectedMode,
+    targetKv:  exam.settings[examState.selectedMode].kV,
+    targetMas: exam.settings[examState.selectedMode].mAs,
+    assetSvg:  exam.assetSvg,
+    notes:     exam.notes,
+  };
+  hideAllExamScreens();
+  try { MC2Audio.unlock(); } catch (e) {}
   try { startPlay(); } catch (e) { mc2Status('startPlay threw: ' + (e && e.message), 'error'); }
 });
 backBtn.addEventListener('click', function () { showStartScreen(); });
