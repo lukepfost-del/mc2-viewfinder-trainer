@@ -189,6 +189,36 @@
 </div>
 
 <!-- =================================================================== -->
+
+<!-- =================================================================== -->
+<!-- CAPTURE SCREEN (v26): shown after EXPOSE in exam mode.  Drops HUD,    -->
+<!-- shows a square detector area with the anatomy clipped to the         -->
+<!-- collimation rectangle.  Retake / Approve both revert to the HUD.     -->
+<!-- =================================================================== -->
+<div id="capture-screen" class="hidden">
+  <div class="capture-inner">
+    <div class="capture-meta">
+      <div class="capture-overline">Captured</div>
+      <div class="capture-name" id="capture-name">—</div>
+    </div>
+    <div class="capture-frame" id="capture-frame">
+      <div class="capture-detector"></div>
+      <img class="capture-anatomy" id="capture-anatomy" alt="" />
+      <div class="capture-mask" id="capture-mask-top"></div>
+      <div class="capture-mask" id="capture-mask-right"></div>
+      <div class="capture-mask" id="capture-mask-bottom"></div>
+      <div class="capture-mask" id="capture-mask-left"></div>
+      <div class="capture-collim-outline" id="capture-collim-outline"></div>
+    </div>
+    <div class="capture-info" id="capture-info">—</div>
+    <div class="capture-actions">
+      <button class="capture-btn capture-retake" id="capture-retake">Retake</button>
+      <button class="capture-btn capture-approve" id="capture-approve">Approve</button>
+    </div>
+  </div>
+</div>
+
+<!-- =================================================================== -->
 <!-- APP SHELL: prompt strip / viewfinder / feedback strip / EXPOSE       -->
 <!-- =================================================================== -->
 <div id="app" class="hidden">

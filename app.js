@@ -73,6 +73,20 @@ const examCardPlaceholder= document.getElementById('exam-card-placeholder');
 const examCardToggle     = document.getElementById('exam-card-toggle');
 const examAnatomyImg     = document.getElementById('exam-anatomy-img');
 
+// v26: capture screen (post-EXPOSE in exam mode)
+const captureScreen   = document.getElementById('capture-screen');
+const captureFrame    = document.getElementById('capture-frame');
+const captureAnatomy  = document.getElementById('capture-anatomy');
+const captureName     = document.getElementById('capture-name');
+const captureInfo     = document.getElementById('capture-info');
+const captureMaskT    = document.getElementById('capture-mask-top');
+const captureMaskR    = document.getElementById('capture-mask-right');
+const captureMaskB    = document.getElementById('capture-mask-bottom');
+const captureMaskL    = document.getElementById('capture-mask-left');
+const captureOutline  = document.getElementById('capture-collim-outline');
+const captureRetake   = document.getElementById('capture-retake');
+const captureApprove  = document.getElementById('capture-approve');
+
 const examSpecSid        = document.getElementById('exam-spec-sid');
 const examSpecKv         = document.getElementById('exam-spec-kv');
 const examSpecMas        = document.getElementById('exam-spec-mas');
@@ -1659,6 +1673,8 @@ function showStartScreen() {
   delete examAnatomyImg.dataset.exam;
   examAnatomyImg.classList.remove('show');
   examAnatomyImg.removeAttribute('src');
+  // v26: also hide the capture screen.
+  if (captureScreen) captureScreen.classList.add('hidden');
   startScreen.classList.remove('hidden');
   renderTileStars();
   viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid','armed','blocked','searching');
@@ -1938,6 +1954,58 @@ document.querySelectorAll('[data-act]').forEach(function (el) {
 });
 updateKvMasFills();
 
+// v26: render the capture screen with anatomy clipped to the collim rect.
+// - The frame square represents the active area (cassette detector).
+// - The collim rect is centered on aimLocal, sized by fieldHalf.
+// - We mask everything OUTSIDE the rect by positioning four black strips.
+// - The anatomy <img> sits underneath, sized to the full frame.
+function showCaptureScreen(pose) {
+  if (!captureScreen || !state.currentExam) return;
+  // Map cassette-local cm → frame % (active area is 0..100% on each axis).
+  // cassette center at (0,0) cm → (50%, 50%).  pose.half cm → 50%.
+  const fhPct  = (pose.fieldHalf / pose.half) * 50;   // half-width of collim, in %
+  const axPct  = 50 + (pose.aimLocal.x / pose.half) * 50;
+  const ayPct  = 50 + (pose.aimLocal.y / pose.half) * 50;
+  const left   = Math.max(0, axPct - fhPct);
+  const right  = Math.min(100, axPct + fhPct);
+  const top    = Math.max(0, ayPct - fhPct);
+  const bottom = Math.min(100, ayPct + fhPct);
+  // Four black strips that cover everything outside the collim rect.
+  captureMaskT.style.cssText = 'position:absolute;left:0;right:0;top:0;height:' + top + '%;background:rgba(0,0,0,0.86);pointer-events:none;';
+  captureMaskB.style.cssText = 'position:absolute;left:0;right:0;top:' + bottom + '%;bottom:0;background:rgba(0,0,0,0.86);pointer-events:none;';
+  captureMaskL.style.cssText = 'position:absolute;left:0;top:' + top + '%;height:' + (bottom - top) + '%;width:' + left + '%;background:rgba(0,0,0,0.86);pointer-events:none;';
+  captureMaskR.style.cssText = 'position:absolute;left:' + right + '%;top:' + top + '%;height:' + (bottom - top) + '%;right:0;background:rgba(0,0,0,0.86);pointer-events:none;';
+  // Thin bright outline around the collim rect.
+  captureOutline.style.cssText = 'position:absolute;left:' + left + '%;top:' + top + '%;width:' + (right - left) + '%;height:' + (bottom - top) + '%;border:1px solid rgba(171,209,255,0.55);pointer-events:none;box-sizing:border-box;';
+  // Anatomy artwork (already loaded for HUD, reuse the same URL).
+  if (state.currentExam.assetAnatomy) {
+    captureAnatomy.src = state.currentExam.assetAnatomy;
+  }
+  // Header metadata.
+  captureName.textContent = state.currentExam.name;
+  const fhCm = pose.fieldHalf.toFixed(1);
+  const fwCm = (2 * pose.fieldHalf).toFixed(1);
+  captureInfo.textContent =
+    state.modes[state.modeIdx] + '  \u00B7  ' +
+    state.kv + ' kV  \u00B7  ' + state.mas + ' mAs  \u00B7  ' +
+    'SID ' + pose.sidCm.toFixed(0) + ' cm  \u00B7  ' +
+    'Field ' + fwCm + ' \u00D7 ' + fwCm + ' cm';
+  // Show.
+  appShell.classList.add('hidden');
+  captureScreen.classList.remove('hidden');
+}
+
+function hideCaptureScreen() {
+  if (!captureScreen) return;
+  captureScreen.classList.add('hidden');
+  appShell.classList.remove('hidden');
+  // Reset trigger arm state so the next EXPOSE press has to re-arm.
+  triggerBtn.classList.remove('armed');
+}
+
+if (captureRetake) captureRetake.addEventListener('click', hideCaptureScreen);
+if (captureApprove) captureApprove.addEventListener('click', hideCaptureScreen);
+
 triggerBtn.addEventListener('click', function () {
   if (state.mode === MODE.TUTORIAL) {
     tryLockRep();
@@ -1949,7 +2017,22 @@ triggerBtn.addEventListener('click', function () {
     state.capturing = true;
     MC2Audio.expose();
     fireShutterEffect();
-    setTimeout(function () { state.capturing = false; }, 220);
+    // v26: snapshot the pose IMMEDIATELY so the capture screen can render
+    // the collimation even after the user moves the phone post-EXPOSE.
+    const snapshotPose = state.pose ? {
+      half:       state.pose.half,
+      fieldHalf:  state.pose.fieldHalf,
+      aimLocal:   { x: state.pose.aimLocal.x, y: state.pose.aimLocal.y },
+      sidCm:      state.pose.sidCm,
+      tiltDeg:    state.pose.tiltDeg,
+    } : null;
+    setTimeout(function () {
+      state.capturing = false;
+      // v26: in exam mode, drop the HUD and show the captured radiograph.
+      if (state.currentExam && snapshotPose) {
+        showCaptureScreen(snapshotPose);
+      }
+    }, 220);
   }
 });
 
