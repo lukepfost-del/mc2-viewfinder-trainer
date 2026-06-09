@@ -72,6 +72,24 @@ const examCardImgB       = document.getElementById('exam-card-img-b');
 const examCardPlaceholder= document.getElementById('exam-card-placeholder');
 const examCardToggle     = document.getElementById('exam-card-toggle');
 const examAnatomyImg     = document.getElementById('exam-anatomy-img');
+// v25.5 DIAGNOSTIC — remove me once anatomy is working.  Renders into a
+// tiny absolutely-positioned div #mc2-debug-strip at top of LCD.
+function mc2dbg(label, value) {
+  let el = document.getElementById('mc2-debug-strip');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'mc2-debug-strip';
+    el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9999;'
+      + 'background:rgba(0,0,0,0.85);color:#0f0;padding:6px 10px;'
+      + 'font:11px/1.3 monospace;border-radius:6px;pointer-events:none;'
+      + 'max-width:90vw;white-space:pre-wrap;border:1px solid #0f0;';
+    document.body.appendChild(el);
+    el._lines = {};
+  }
+  el._lines[label] = value;
+  el.textContent = Object.keys(el._lines).map(k => k + ': ' + el._lines[k]).join('\n');
+}
+
 const examSpecSid        = document.getElementById('exam-spec-sid');
 const examSpecKv         = document.getElementById('exam-spec-kv');
 const examSpecMas        = document.getElementById('exam-spec-mas');
@@ -689,6 +707,7 @@ function applyCassetteTransform(p, l2s) {
   // on local origin).  object-fit: contain on the img keeps the anatomy
   // SVG's aspect, so it sits roughly centered on the cassette — matching
   // how it appears in the paired "Anatomy + Cassette" reference.
+  mc2dbg('hasDS', examAnatomyImg.dataset.exam || '(empty)');
   if (examAnatomyImg.dataset.exam) {
     const ANATOMY_SCALE = 1.0;     // 1.0 = anatomy span equals active area
     const aaCm = SETTINGS.activeAreaCm * ANATOMY_SCALE;
@@ -703,6 +722,7 @@ function applyCassetteTransform(p, l2s) {
     const T_a_to_s = mul3x3(l2s.H_l_to_s, T_a_to_l);
     examAnatomyImg.style.transform = matrix3dFromH(T_a_to_s);
     examAnatomyImg.classList.add('show');
+    mc2dbg('show', 'applied ' + Math.round(T_a_to_s[2]) + ',' + Math.round(T_a_to_s[5]));
   }
 }
 
@@ -1185,28 +1205,35 @@ function startPlay(opts) {
 // counter with backface-visibility + transform: translateZ(0).
 function loadExamAnatomyOverlay() {
   const ex = state.currentExam;
+  mc2dbg('exam', ex ? ex.id : '(none)');
   if (!ex || !ex.assetAnatomy) {
     examAnatomyImg.removeAttribute('src');
     delete examAnatomyImg.dataset.exam;
     examAnatomyImg.classList.remove('show');
+    mc2dbg('load', 'no-exam');
     return;
   }
+  mc2dbg('url', ex.assetAnatomy);
   // v25.4: skip the probe and set src directly.  The probe added a race
   // (Safari sometimes confused itself fetching the same URL twice) and
   // hid loading errors behind a silent path.  We also cache-bust with
   // ?v=25.4 because iOS Safari aggressively caches anatomy.svg and may
   // still be serving an earlier broken (pre-flatten) version.
   examAnatomyImg.onload = function () {
+    mc2dbg('load', 'OK ' + examAnatomyImg.naturalWidth + 'x' + examAnatomyImg.naturalHeight);
     if (state.currentExam === ex) {
       examAnatomyImg.dataset.exam = ex.id;
+      mc2dbg('dataset', ex.id);
     }
   };
-  examAnatomyImg.onerror = function () {
+  examAnatomyImg.onerror = function (e) {
+    mc2dbg('load', 'ERR ' + (e && e.message || ''));
     examAnatomyImg.removeAttribute('src');
     delete examAnatomyImg.dataset.exam;
     examAnatomyImg.classList.remove('show');
   };
-  examAnatomyImg.src = ex.assetAnatomy + '?v=25.4';
+  examAnatomyImg.src = ex.assetAnatomy + '?v=25.5';
+  mc2dbg('src-set', 'yes');
 }
 
 // v24.1: render the exam reference card under the HUD.  Looks up the current
