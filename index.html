@@ -39,34 +39,36 @@
 <div id="start-screen" class="hidden">
   <div class="start-inner">
     <div class="route-tiles">
-      <button class="route-tile tutorial" id="route-tutorial">
-        <div class="tile-title">Tutorial</div>
-        <div class="tile-sub">Learn the controls &mdash; 5 lessons</div>
-        <ul class="tile-list">
-          <li>Aim &mdash; land the crosshair on the cassette</li>
-          <li>Center &mdash; fine-tune to the bullseye</li>
-          <li>Perpendicular &mdash; flatten tilt under 5&deg;</li>
-          <li>SID &mdash; match three distance targets</li>
-          <li>Final Test &mdash; pull it all together</li>
-        </ul>
-        <div class="tile-stars" id="tile-stars"></div>
-        <div class="tile-cta tile-cta-primary">Start Tutorial &rarr;</div>
+      <button class="route-tile" id="route-tutorial">
+        <div class="tile-body">
+          <div class="tile-eyebrow"><span class="tile-num">01</span><span class="tile-kind">Guided</span></div>
+          <h2 class="tile-title">Tutorial</h2>
+          <p class="tile-sub">Learn the controls in five short lessons.</p>
+          <div class="tile-stars" id="tile-stars"></div>
+        </div>
+        <svg class="tile-arrow" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
       </button>
-      <button class="route-tile play" id="route-play">
-        <div class="tile-title">Play</div>
-        <div class="tile-sub">Free practice with the full system</div>
-        <div class="tile-cta tile-cta-secondary">Open Practice &rarr;</div>
+      <button class="route-tile" id="route-play">
+        <div class="tile-body">
+          <div class="tile-eyebrow"><span class="tile-num">02</span><span class="tile-kind">Free practice</span></div>
+          <h2 class="tile-title">Play</h2>
+          <p class="tile-sub">Full HUD, no objectives.</p>
+        </div>
+        <svg class="tile-arrow" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
       </button>
-      <button class="route-tile exam" id="route-exam">
-        <div class="tile-title">Simulated Exam</div>
-        <div class="tile-sub">Practice real radiograph views</div>
-        <ul class="tile-list">
-          <li>Pick anatomy &mdash; hand, foot, wrist, knee&hellip;</li>
-          <li>Pick view &mdash; PA, oblique, lateral</li>
-          <li>Match recommended kV, mAs, and SID</li>
-          <li>Aim, expose, see your captured image</li>
-        </ul>
-        <div class="tile-cta tile-cta-secondary">Choose Anatomy &rarr;</div>
+      <button class="route-tile" id="route-exam">
+        <div class="tile-body">
+          <div class="tile-eyebrow"><span class="tile-num">03</span><span class="tile-kind">Simulated Exam</span></div>
+          <h2 class="tile-title">Practice real views</h2>
+          <p class="tile-sub">Hand, wrist, foot, knee — with recommended settings.</p>
+        </div>
+        <svg class="tile-arrow" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
       </button>
     </div>
 

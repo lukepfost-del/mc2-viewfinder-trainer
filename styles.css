@@ -256,29 +256,25 @@ html, body {
 @media (max-width: 700px) {
   .welcome-sub { font-size: 16px; line-height: 24px; margin-bottom: var(--s-8); }
 }
-/* Single primary action per view → solid brand button (the "tap to begin"
-   IS the only thing to do on this screen). */
+/* Ghost pill — Porsche/OXOS restraint over a solid CTA.  The whole
+   screen is tappable, so the pill is just a visual anchor that says
+   "do something" without shouting. */
 .welcome-cta {
-  font-family: var(--ff-sans);
-  font-size: 16px; line-height: 24px;
-  font-weight: 600;
-  color: var(--on-brand);
-  background: var(--brand-primary);
-  padding: 16px 32px;
-  min-height: 56px;
-  border-radius: var(--r-md);
-  border: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  box-shadow: var(--elev-2);
-  transition: background var(--dur-fast) var(--ease-out),
-              transform var(--dur-instant) var(--ease-out),
-              box-shadow var(--dur-fast) var(--ease-out);
-  /* Subtle attention beat — fades brand-soft glow on/off */
+  font-family: var(--ff-sans);
+  font-size: 12px; line-height: 16px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  font-weight: 600;
+  color: var(--brand-primary-soft);
+  background: transparent;
+  padding: 13px 28px;
+  border: 1px solid rgba(89,92,255,0.45);
+  border-radius: var(--r-pill);
   animation: welcome-pulse 2s var(--ease-in-out) infinite;
 }
 @keyframes welcome-pulse {
-  0%, 100% { box-shadow: var(--elev-2), 0 0 0 0 rgba(89,92,255,0); }
-  50%      { box-shadow: var(--elev-2), 0 0 0 10px rgba(89,92,255,0.12); }
+  0%, 100% { opacity: 0.7; transform: scale(1);    box-shadow: 0 0 0 0 rgba(89,92,255,0); }
+  50%      { opacity: 1;   transform: scale(1.02); box-shadow: 0 0 0 8px rgba(89,92,255,0.10); }
 }
 .welcome-credit {
   flex: 0 0 auto;
@@ -315,47 +311,56 @@ html, body {
   gap: var(--s-8);
 }
 
+/* Three confident horizontal tiles, stacked vertically.  Porsche/OXOS
+   energy: bold typography, generous whitespace, single arrow indicator
+   on the right.  No bullet lists, no separate CTA buttons — the entire
+   tile is the action. */
 .route-tiles {
-  /* 3 tiles: Tutorial (primary CTA, spans top), Play + Simulated Exam
-     (secondary, share bottom row on desktop, stacked on phone). */
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-areas:
-    "tutorial tutorial"
-    "play     exam";
-  gap: var(--s-4);
-  align-items: stretch;
+  display: flex; flex-direction: column;
+  gap: var(--s-3);
 }
-.route-tile.tutorial { grid-area: tutorial; }
-.route-tile.play     { grid-area: play; }
-.route-tile.exam     { grid-area: exam; }
 
-/* Canonical MC2 card — bg-raised, border-subtle, r-lg, elev-2 */
 .route-tile {
   position: relative;
   width: 100%;
   background: var(--bg-raised);
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-lg);
-  padding: var(--s-6);
+  padding: var(--s-6) var(--s-6);
   color: var(--text-primary);
   text-align: left;
-  display: flex; flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--s-5);
   cursor: pointer;
-  box-shadow: var(--elev-2);
-  transition: transform var(--dur-base) var(--ease-out),
-              border-color var(--dur-fast) var(--ease-out),
-              background var(--dur-fast) var(--ease-out),
-              box-shadow var(--dur-fast) var(--ease-out);
+  box-shadow: var(--elev-1);
+  overflow: hidden;
   font-family: var(--ff-sans);
+  transition: transform var(--dur-base) var(--ease-out),
+              border-color var(--dur-base) var(--ease-out),
+              background var(--dur-base) var(--ease-out),
+              box-shadow var(--dur-base) var(--ease-out);
+}
+/* Subtle vertical accent bar that grows on hover — Porsche detail */
+.route-tile::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 50%; transform: translateY(-50%);
+  width: 2px; height: 0;
+  background: var(--brand-primary);
+  border-radius: 0 var(--r-xs) var(--r-xs) 0;
+  transition: height var(--dur-base) var(--ease-out);
 }
 .route-tile:hover {
-  transform: translateY(-2px);
+  background: #1F1F25;
   border-color: var(--border-default);
   box-shadow: var(--elev-3);
 }
+.route-tile:hover::before { height: 56px; }
+.route-tile:hover .tile-arrow { transform: translateX(4px); color: var(--brand-primary-soft); }
 .route-tile:active {
-  transform: translateY(1px) scale(0.995);
+  transform: scale(0.995);
   box-shadow: var(--elev-1);
   transition-duration: var(--dur-instant);
 }
@@ -364,103 +369,68 @@ html, body {
   box-shadow: var(--elev-2), var(--elev-focus);
 }
 
-/* Eyebrow over the title (per MC2 guideline) */
-.tile-sub {
+.tile-body { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+
+/* Eyebrow row: "01 · Guided" — mono number + sans kind, in a single line */
+.tile-eyebrow {
+  display: flex; align-items: baseline; gap: var(--s-3);
   font-size: 12px; line-height: 16px;
-  letter-spacing: 0.14em; text-transform: uppercase;
+  letter-spacing: 0.18em; text-transform: uppercase;
   font-weight: 600;
-  color: var(--text-secondary);
-  margin: 0 0 var(--s-2) 0;
+  color: var(--text-tertiary);
+  margin-bottom: var(--s-3);
 }
+.tile-num {
+  font-family: var(--ff-mono);
+  color: var(--brand-primary-soft);
+  letter-spacing: 0.02em;
+  font-weight: 500;
+}
+.tile-kind { color: var(--text-secondary); }
+
+/* The hero — big confident title, like a section head on oxos.com */
 .tile-title {
-  font-size: 24px; line-height: 32px;
-  font-weight: 600; letter-spacing: -0.01em;
-  color: var(--text-primary);
   margin: 0;
+  font-size: 32px; line-height: 38px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
 }
-.tile-list {
-  list-style: none;
-  padding: 0;
-  margin: var(--s-4) 0 0 0;
-  color: var(--text-secondary);
+.tile-sub {
+  margin: 0;
   font-size: 14px; line-height: 20px;
   font-weight: 400;
+  color: var(--text-secondary);
+  max-width: 38ch;
 }
-.tile-list li {
-  margin: var(--s-2) 0;
-  padding-left: var(--s-4);
-  position: relative;
-}
-.tile-list li::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 0.55em;
-  width: 4px; height: 4px;
-  border-radius: 50%;
-  background: var(--text-tertiary);
-}
+
+/* Stars under tile-sub for the Tutorial tile (if rendered) */
 .tile-stars {
-  margin-top: var(--s-3);
-  font-size: 14px; letter-spacing: 2px;
+  margin-top: var(--s-2);
+  font-size: 13px; letter-spacing: 2px;
   color: var(--amber);
   font-variant-numeric: tabular-nums;
 }
 
-/* MC2 canonical "one primary action per view".
-   Tutorial = primary brand button (solid Azure).
-   Play + Simulated Exam = secondary (neutral fill, text-primary).
-   The CTA "buttons" inside tiles look like real buttons — they cement the
-   "this whole thing is interactive" affordance. */
-.tile-cta {
-  margin-top: auto;
-  padding-top: var(--s-5);
-  display: inline-flex;
-  align-items: center; justify-content: center;
-  gap: var(--s-2);
-  font-family: var(--ff-sans);
-  font-size: 16px; line-height: 24px;
-  font-weight: 600;
-  min-height: 56px;
-  padding-left: var(--s-5); padding-right: var(--s-5);
-  border-radius: var(--r-md);
+/* Animated arrow on the right — the affordance */
+.tile-arrow {
+  width: 28px; height: 28px;
+  flex: 0 0 28px;
+  color: var(--text-tertiary);
+  transition: transform var(--dur-base) var(--ease-out),
+              color var(--dur-base) var(--ease-out);
 }
-.tile-cta-primary {
-  margin-top: var(--s-5);
-  background: var(--brand-primary);
-  color: var(--on-brand);
-  box-shadow: var(--elev-2);
-  transition: background var(--dur-fast) var(--ease-out),
-              box-shadow var(--dur-fast) var(--ease-out);
-}
-.tile-cta-secondary {
-  margin-top: var(--s-5);
-  background: rgba(255,255,255,0.06);
-  color: var(--text-primary);
-  border: 1px solid var(--border-default);
-  transition: background var(--dur-fast) var(--ease-out),
-              border-color var(--dur-fast) var(--ease-out);
-}
-.route-tile:hover .tile-cta-primary {
-  background: var(--brand-primary-hover);
-  box-shadow: var(--elev-3);
-}
-.route-tile:hover .tile-cta-secondary {
-  background: rgba(255,255,255,0.10);
-  border-color: var(--border-strong);
-}
+
+/* v25.1: tile-cta* removed — tiles are now the affordance themselves. */
 
 /* Mobile: stack tiles vertically when too narrow, tighten density so the
    page fits the viewport without needing to scroll on most phones. */
 @media (max-width: 520px) {
-  .route-tiles {
-    grid-template-columns: 1fr;
-    grid-template-areas: "tutorial" "play" "exam";
-    gap: var(--s-3);
-  }
   .start-inner { gap: var(--s-6); }
   .route-tile { padding: var(--s-5); }
-  .tile-title { font-size: 22px; line-height: 28px; }
-  .tile-list { font-size: 14px; line-height: 20px; }
+  .tile-title { font-size: 28px; line-height: 34px; }
+  .tile-sub { font-size: 13px; line-height: 18px; }
+  .tile-eyebrow { font-size: 11px; margin-bottom: var(--s-2); }
 }
 
 /* Canonical card-flat style.  Print is supportive content, not the
