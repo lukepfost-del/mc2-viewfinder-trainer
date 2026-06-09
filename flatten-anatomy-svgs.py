@@ -109,7 +109,7 @@ def main() -> int:
         return 1
     processed = 0
     skipped = 0
-    for svg in sorted(list(ROOT.rglob("anatomy.svg")) + list(ROOT.rglob("cassette-a.svg")) + list(ROOT.rglob("cassette-b.svg"))):
+    for svg in sorted(ROOT.rglob("anatomy.svg")):
         bak = svg.with_suffix(".svg.bak")
         # Always re-process from the backup if it exists, so re-runs are idempotent.
         source_path = bak if bak.exists() else svg
