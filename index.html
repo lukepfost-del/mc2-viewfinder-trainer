@@ -212,11 +212,13 @@
     <div id="lcd">
       <video id="video" autoplay muted playsinline webkit-playsinline></video>
       <img id="cassette-img" src="assets/cassette-full.webp" alt="" />
-      <!-- v24.2: Simulated Exam anatomy overlay — rides the cassette's
-           transform so it tracks the printed marker.  Container is a div
-           with the SVG inlined into it at load time (live vector, not a
-           rasterized <img>), so the matrix3d transform doesn't blur it. -->
-      <div id="exam-anatomy-img" aria-hidden="true"></div>
+      <!-- v25.2: Simulated Exam anatomy overlay.  Rendered as <img> rather
+           than inlined SVG so the Figma "outside-mask" outline refs
+           (mask="url(#path-1-outside-N)") resolve inside the SVG file's
+           own document context — they break in Safari when inlined via
+           innerHTML.  Trades a little iOS matrix3d softness for the
+           anatomy actually appearing. -->
+      <img id="exam-anatomy-img" alt="" />
       <canvas id="overlay"></canvas>
     </div>
 

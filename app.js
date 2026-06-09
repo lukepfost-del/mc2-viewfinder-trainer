@@ -1175,74 +1175,39 @@ function startPlay(opts) {
 // The `data-exam` attribute on the img element gates the matrix3d transform
 // inside applyCassetteTransform — so when anatomy is missing, the overlay
 // stays invisible and isn't transformed at all.
-// Process the root <svg> tag so it fills the wrapper:
-//   - replace fixed width="..."/height="..." with 100%
-//   - force preserveAspectRatio="xMidYMid meet" so the anatomy stays
-//     aspect-correct and centered inside the 720x720 wrapper (same visual
-//     contract the old <img object-fit:contain> setup provided).
-// Only the FIRST <svg ...> tag is touched, so nested <svg> use (rare in
-// these assets) is left alone.
-//
-// v25.0: ALSO strip every `filter="url(#...)"` attribute and the `<defs>`
-// <filter> blocks themselves.  The anatomy SVGs from Figma carry decorative
-// drop-shadow filters (feGaussianBlur).  When inlined under a CSS matrix3d
-// transform, those filtered regions are rasterized at the element's current
-// size before the transform is applied — re-blurring the anatomy on iOS
-// despite the inline-SVG fix.  Removing the filters loses only the
-// decorative drop shadow; the anatomy outline + fill renders crisp vector
-// at any scale.
-const ANATOMY_ROOT_SVG_RE = /<svg\b[^>]*>/;
-const ANATOMY_FILTER_ATTR_RE = /\sfilter="url\(#[^"]*\)"/gi;
-const ANATOMY_FILTER_DEFS_RE = /<filter\b[\s\S]*?<\/filter>/gi;
-function processAnatomySvg(svgText) {
-  let s = svgText
-    .replace(ANATOMY_FILTER_ATTR_RE, '')   // drop filter= refs on groups
-    .replace(ANATOMY_FILTER_DEFS_RE, '');  // drop <filter> blocks in <defs>
-  s = s.replace(ANATOMY_ROOT_SVG_RE, function (tag) {
-    let t = tag;
-    t = t.replace(/\s+width="[^"]*"/i, '');
-    t = t.replace(/\s+height="[^"]*"/i, '');
-    t = t.replace(/\s+preserveAspectRatio="[^"]*"/i, '');
-    return t.replace(/\s*\/?>$/,
-      ' width="100%" height="100%" preserveAspectRatio="xMidYMid meet">');
-  });
-  return s;
-}
-
+// v25.2: load the anatomy artwork as an <img>.  Earlier (dbd699c) we
+// switched to inline-SVG to defeat iOS matrix3d blur, but the Figma
+// outline-mask trick (mask="url(#path-1-outside-N)") doesn't resolve
+// when SVGs are inlined via innerHTML in Safari — so the anatomy
+// renders invisibly.  Going back to <img> keeps mask refs internal
+// to the SVG file's document and they resolve correctly.  The
+// trade-off is slight softness under matrix3d on iOS, which we
+// counter with backface-visibility + transform: translateZ(0).
 function loadExamAnatomyOverlay() {
   const ex = state.currentExam;
   if (!ex || !ex.assetAnatomy) {
-    examAnatomyImg.innerHTML = '';
+    examAnatomyImg.removeAttribute('src');
     delete examAnatomyImg.dataset.exam;
     examAnatomyImg.classList.remove('show');
     return;
   }
-  // If we've already fetched this exam's SVG, reuse it — switching exams
-  // round-trips quickly and avoids a flash of empty overlay.
-  if (ex.assetAnatomyText) {
-    examAnatomyImg.innerHTML = ex.assetAnatomyText;
-    examAnatomyImg.dataset.exam = ex.id;
-    return;
-  }
-  fetch(ex.assetAnatomy)
-    .then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.text();
-    })
-    .then(function (text) {
-      ex.assetAnatomyText = processAnatomySvg(text);
-      // The user may have moved to a different exam during the fetch —
-      // only inject if this is still the active one.
-      if (state.currentExam === ex) {
-        examAnatomyImg.innerHTML = ex.assetAnatomyText;
-        examAnatomyImg.dataset.exam = ex.id;
-      }
-    })
-    .catch(function () {
-      examAnatomyImg.innerHTML = '';
+  const probe = new Image();
+  probe.onload = function () {
+    // User may have switched exams during the probe — only attach if still
+    // the active exam.
+    if (state.currentExam === ex) {
+      examAnatomyImg.src = ex.assetAnatomy;
+      examAnatomyImg.dataset.exam = ex.id;
+    }
+  };
+  probe.onerror = function () {
+    if (state.currentExam === ex) {
+      examAnatomyImg.removeAttribute('src');
       delete examAnatomyImg.dataset.exam;
       examAnatomyImg.classList.remove('show');
-    });
+    }
+  };
+  probe.src = ex.assetAnatomy;
 }
 
 // v24.1: render the exam reference card under the HUD.  Looks up the current
@@ -1688,7 +1653,7 @@ function showStartScreen() {
   // v24.2: also clear the HUD anatomy overlay.
   delete examAnatomyImg.dataset.exam;
   examAnatomyImg.classList.remove('show');
-  examAnatomyImg.innerHTML = '';
+  examAnatomyImg.removeAttribute('src');
   startScreen.classList.remove('hidden');
   renderTileStars();
   viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid','armed','blocked','searching');
