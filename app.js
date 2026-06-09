@@ -1938,6 +1938,8 @@ examStartBtn.addEventListener('click', function () {
     assetCassetteB: exam.assetCassetteB,
     assetSvg:       exam.assetSvg,
     notes:          exam.notes,
+    // v27: combined cassette+anatomy overlay metadata (vbW/H, active rect)
+    cassetteMeta:   exam.cassetteMeta,
   };
   // Sync the HUD mode to the mode the user picked on the detail card so the
   // recommended values match what they were just looking at.
