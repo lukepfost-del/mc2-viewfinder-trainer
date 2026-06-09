@@ -1200,33 +1200,61 @@ function startPlay(opts) {
 // counter with backface-visibility + transform: translateZ(0).
 function loadExamAnatomyOverlay() {
   const ex = state.currentExam;
-  if (!ex || !ex.assetAnatomy) {
+  if (!ex) {
     examAnatomyImg.removeAttribute('src');
     delete examAnatomyImg.dataset.exam;
     examAnatomyImg.classList.remove('show');
-
+    setCassetteImageForExam(null);
     return;
   }
-
-  // v25.4: skip the probe and set src directly.  The probe added a race
-  // (Safari sometimes confused itself fetching the same URL twice) and
-  // hid loading errors behind a silent path.  We also cache-bust with
-  // ?v=25.4 because iOS Safari aggressively caches anatomy.svg and may
-  // still be serving an earlier broken (pre-flatten) version.
+  // v27: cassette-a.svg includes both cassette and anatomy in their
+  // correct relative positions — render it directly as the cassette
+  // image and skip the separate anatomy overlay.
+  if (ex.cassetteMeta) {
+    setCassetteImageForExam(ex);
+    examAnatomyImg.removeAttribute('src');
+    delete examAnatomyImg.dataset.exam;
+    examAnatomyImg.classList.remove('show');
+    return;
+  }
+  // Fallback path — exam without cassetteMeta uses anatomy-only overlay
+  // on the default cassette photo (legacy v24.2/v25.x behavior).
+  setCassetteImageForExam(null);
+  if (!ex.assetAnatomy) {
+    examAnatomyImg.removeAttribute('src');
+    delete examAnatomyImg.dataset.exam;
+    examAnatomyImg.classList.remove('show');
+    return;
+  }
   examAnatomyImg.onload = function () {
-
-    if (state.currentExam === ex) {
-      examAnatomyImg.dataset.exam = ex.id;
-
-    }
+    if (state.currentExam === ex) examAnatomyImg.dataset.exam = ex.id;
   };
-  examAnatomyImg.onerror = function (e) {
+  examAnatomyImg.onerror = function () {
     examAnatomyImg.removeAttribute('src');
     delete examAnatomyImg.dataset.exam;
     examAnatomyImg.classList.remove('show');
   };
-  examAnatomyImg.src = ex.assetAnatomy + '?v=25.5';
+  examAnatomyImg.src = ex.assetAnatomy + '?v=27';
+}
 
+// v27: swap the cassette <img> between the default photo and an exam's
+// combined cassette+anatomy SVG.  We resize the element to the SVG's
+// natural aspect so matrix3d math works in source-pixel coordinates.
+function setCassetteImageForExam(ex) {
+  const defaultSrc = 'assets/cassette-full.webp';
+  if (ex && ex.cassetteMeta && ex.assetCassetteA) {
+    if (cassetteImg.getAttribute('src') !== ex.assetCassetteA) {
+      cassetteImg.src = ex.assetCassetteA;
+    }
+    cassetteImg.style.width  = ex.cassetteMeta.vbW + 'px';
+    cassetteImg.style.height = ex.cassetteMeta.vbH + 'px';
+  } else {
+    if (cassetteImg.getAttribute('src') !== defaultSrc) {
+      cassetteImg.src = defaultSrc;
+    }
+    cassetteImg.style.width  = '';
+    cassetteImg.style.height = '';
+  }
 }
 
 // v24.1: render the exam reference card under the HUD.  Looks up the current
@@ -1673,6 +1701,9 @@ function showStartScreen() {
   delete examAnatomyImg.dataset.exam;
   examAnatomyImg.classList.remove('show');
   examAnatomyImg.removeAttribute('src');
+  // v27: revert the cassette image to the default photo (in case an exam
+  // had swapped it to cassette-a.svg).
+  if (typeof setCassetteImageForExam === 'function') setCassetteImageForExam(null);
   // v26: also hide the capture screen.
   if (captureScreen) captureScreen.classList.add('hidden');
   startScreen.classList.remove('hidden');

@@ -39,14 +39,14 @@ OUTLINE_STROKE_W = 5
 # Match a complete <mask id="path-1-outside-N" ...>...</mask> block.
 # We extract the inner silhouette path's d="..." inside.
 MASK_BLOCK_RE = re.compile(
-    r'<mask\s+id="(path-1-outside-[^"]+)"[^>]*>([\s\S]*?)</mask>',
+    r'<mask\s+id="(path-\d+-outside-[^"]+)"[^>]*>([\s\S]*?)</mask>',
     re.IGNORECASE,
 )
 # The silhouette path inside the mask (no fill/stroke attrs, just d).
 INNER_PATH_RE = re.compile(r'<path\s+d="([^"]+)"\s*/>', re.IGNORECASE)
 # The outer path that uses mask="url(#path-1-outside-N)" — we strip this.
 OUTER_MASKED_PATH_RE = re.compile(
-    r'<path\b[^>]*?\bmask="url\(#(path-1-outside-[^)]+)\)"[^>]*?/>',
+    r'<path\b[^>]*?\bmask="url\(#(path-\d+-outside-[^)]+)\)"[^>]*?/>',
     re.IGNORECASE,
 )
 # Other Figma decoration: filter defs and filter= refs
@@ -54,20 +54,17 @@ FILTER_BLOCK_RE = re.compile(r"<filter\b[\s\S]*?</filter>", re.IGNORECASE)
 FILTER_ATTR_RE = re.compile(r'\sfilter="url\(#[^"]*\)"', re.IGNORECASE)
 
 
-def flatten_svg(text: str) -> str:
-    # 1) Pull every outside-mask's silhouette d into a registry.
+def _silhouette_replacer(text: str):
+    """Return (silhouettes_dict, replacer_fn) for outside-mask paths."""
     silhouettes: dict[str, str] = {}
     for m in MASK_BLOCK_RE.finditer(text):
         mask_id = m.group(1)
-        inner = m.group(2)
-        inner_path = INNER_PATH_RE.search(inner)
+        inner_path = INNER_PATH_RE.search(m.group(2))
         if inner_path:
             silhouettes[mask_id] = inner_path.group(1)
-
-    # 2) Build the replacement path for each outer-masked path.
     def replace_outer(match):
         outer = match.group(0)
-        id_m = re.search(r'mask="url\(#(path-1-outside-[^)]+)\)"', outer)
+        id_m = re.search(r'mask="url\(#(path-\d+-outside-[^)]+)\)"', outer)
         if not id_m:
             return outer
         mask_id = id_m.group(1)
@@ -79,27 +76,35 @@ def flatten_svg(text: str) -> str:
             f'stroke-width="{OUTLINE_STROKE_W}" '
             f'stroke-linecap="round" stroke-linejoin="round"/>'
         )
+    return silhouettes, replace_outer
 
-    # 3) Apply transforms.
+
+def flatten_svg(text: str) -> str:
+    """Aggressive: anatomy-only.  Strip everything that isn't needed for
+    the stroke outline (filters, white silhouettes, clip-paths, masks)."""
+    _, replace_outer = _silhouette_replacer(text)
     text = FILTER_BLOCK_RE.sub("", text)
     text = FILTER_ATTR_RE.sub("", text)
     text = OUTER_MASKED_PATH_RE.sub(replace_outer, text)
     text = MASK_BLOCK_RE.sub("", text)
-
-    # 4) Also remove the "background white silhouette" path that Figma emits
-    #    alongside the outline mask — it's drawn before the outline as a
-    #    filled white shape, but on a white-cassette background it's
-    #    invisible, and on dark it makes the anatomy look like a paste-on
-    #    sticker.  Identify it as any <path fill="white" .../>.
+    # Strip the background white silhouette (it duplicates the outline shape
+    # on standalone anatomy files; on a white cassette background it's
+    # invisible, on dark it looks like a sticker).
     text = re.sub(r'<path\b[^>]*?fill="white"[^>]*?/>', "", text, flags=re.IGNORECASE)
-
-    # 5) Strip clip-path wrappers + clipPath defs — they vary by renderer
-    #    (ImageMagick + some Safari versions) and aren't needed here.
+    # Strip clip-path wrappers + defs — fragile across renderers.
     text = re.sub(r'\sclip-path="url\(#[^"]*\)"', "", text, flags=re.IGNORECASE)
     text = re.sub(r"<clipPath\b[\s\S]*?</clipPath>", "", text, flags=re.IGNORECASE)
-    # If <defs> is now empty, drop it for tidiness.
     text = re.sub(r"<defs>\s*</defs>", "", text, flags=re.IGNORECASE)
+    return text
 
+
+def flatten_cassette_svg(text: str) -> str:
+    """Conservative: cassette+anatomy combined.  Only replace the anatomy
+    outside-mask path with a stroked silhouette; leave the cassette
+    outline (white fills, clip-paths) entirely intact."""
+    _, replace_outer = _silhouette_replacer(text)
+    text = OUTER_MASKED_PATH_RE.sub(replace_outer, text)
+    text = MASK_BLOCK_RE.sub("", text)
     return text
 
 
@@ -109,12 +114,28 @@ def main() -> int:
         return 1
     processed = 0
     skipped = 0
-    for svg in sorted(ROOT.rglob("anatomy.svg")):
+    targets = sorted(list(ROOT.rglob("anatomy.svg"))
+                     + list(ROOT.rglob("cassette-a.svg"))
+                     + list(ROOT.rglob("cassette-b.svg")))
+    for svg in targets:
         bak = svg.with_suffix(".svg.bak")
         # Always re-process from the backup if it exists, so re-runs are idempotent.
-        source_path = bak if bak.exists() else svg
-        original = source_path.read_text(encoding="utf-8")
-        flat = flatten_svg(original)
+        # Guard against Windows-mount ghost entries where bak.exists() is True
+        # but the file is unreadable.
+        original = None
+        if bak.exists():
+            try:
+                original = bak.read_text(encoding="utf-8")
+            except (OSError, FileNotFoundError):
+                original = None
+        if original is None:
+            original = svg.read_text(encoding="utf-8")
+        # Anatomy gets the aggressive flatten; cassette+anatomy combined files
+        # get the conservative flatten (preserves cassette outline + plate).
+        if svg.name.startswith("cassette"):
+            flat = flatten_cassette_svg(original)
+        else:
+            flat = flatten_svg(original)
         if not bak.exists():
             bak.write_text(original, encoding="utf-8")
         if flat == svg.read_text(encoding="utf-8"):

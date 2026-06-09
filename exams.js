@@ -60,6 +60,105 @@ const EXAM_SECTIONS = [
   },
 ];
 
+// v27: per-exam cassette metadata (auto-extracted from cassette-a.svg).
+// Used in HUD play mode to position the combined cassette+anatomy overlay.
+const CASSETTE_META = {
+  "ap-external-shoulder": {
+    "vbW": 740,
+    "vbH": 956,
+    "activeCx": 0.5615,
+    "activeCy": 0.4964,
+    "activeWFrac": 0.9409
+  },
+  "lateral-finger": {
+    "vbW": 740,
+    "vbH": 956,
+    "activeCx": 0.5,
+    "activeCy": 0.5096,
+    "activeWFrac": 0.7207
+  },
+  "lateral-hand": {
+    "vbW": 740,
+    "vbH": 956,
+    "activeCx": 0.5,
+    "activeCy": 0.5096,
+    "activeWFrac": 0.7207
+  },
+  "oblique-finger": {
+    "vbW": 740,
+    "vbH": 956,
+    "activeCx": 0.5,
+    "activeCy": 0.5096,
+    "activeWFrac": 0.7207
+  },
+  "pa-finger": {
+    "vbW": 740,
+    "vbH": 956,
+    "activeCx": 0.5,
+    "activeCy": 0.5096,
+    "activeWFrac": 0.7207
+  },
+  "pa-hand": {
+    "vbW": 740,
+    "vbH": 956,
+    "activeCx": 0.5,
+    "activeCy": 0.5096,
+    "activeWFrac": 0.7207
+  },
+  "ap-elbow": {
+    "vbW": 740,
+    "vbH": 956,
+    "activeCx": 0.5,
+    "activeCy": 0.5096,
+    "activeWFrac": 0.7207
+  },
+  "lateral-elbow": {
+    "vbW": 864,
+    "vbH": 956,
+    "activeCx": 0.5708,
+    "activeCy": 0.5096,
+    "activeWFrac": 0.6172
+  },
+  "lateral-wrist": {
+    "vbW": 740,
+    "vbH": 956,
+    "activeCx": 0.5,
+    "activeCy": 0.5096,
+    "activeWFrac": 0.7207
+  },
+  "oblique-elbow": {
+    "vbW": 740,
+    "vbH": 1059,
+    "activeCx": 0.5,
+    "activeCy": 0.46,
+    "activeWFrac": 0.7207
+  },
+  "oblique-wrist": {
+    "vbW": 740,
+    "vbH": 956,
+    "activeCx": 0.5,
+    "activeCy": 0.5096,
+    "activeWFrac": 0.7207
+  },
+  "pa-wrist": {
+    "vbW": 740,
+    "vbH": 956,
+    "activeCx": 0.5,
+    "activeCy": 0.5096,
+    "activeWFrac": 0.7207
+  },
+  "scaphoid-wrist": {
+    "vbW": 615,
+    "vbH": 472,
+    "activeCx": 0.5429,
+    "activeCy": 0.4816,
+    "activeWFrac": 0.6609
+  }
+};
+// Standard fallback for exams without a cassette-a.svg (or whose layout
+// doesn't parse) — same template as the common 740x956 Figma export.
+const CASSETTE_META_FALLBACK = { vbW: 740, vbH: 956, activeCx: 0.5, activeCy: 0.5096, activeWFrac: 0.7207 };
+
 // Mirrors MC2_Positioning_Guide.csv (one row per exam).
 const EXAM_ROWS = [
   ['hands-fingers',  'PA',                       'Finger',        45, 40, 0.25, 50, 0.08, 50, 0.08, 'Use Proper Collimation'],
@@ -141,6 +240,7 @@ EXAM_ROWS.forEach(function (row) {
     // Back-compat: keep assetSvg pointing at the anatomy file so any older
     // code referring to it doesn't break.
     assetSvg:       folder + 'anatomy.svg',
+    cassetteMeta:   CASSETTE_META[id] || CASSETTE_META_FALLBACK,
   };
   EXAMS_BY_SECTION[sectionId].exams.push(exam);
 });
