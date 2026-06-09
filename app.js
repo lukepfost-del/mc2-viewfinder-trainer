@@ -1191,23 +1191,22 @@ function loadExamAnatomyOverlay() {
     examAnatomyImg.classList.remove('show');
     return;
   }
-  const probe = new Image();
-  probe.onload = function () {
-    // User may have switched exams during the probe — only attach if still
-    // the active exam.
+  // v25.4: skip the probe and set src directly.  The probe added a race
+  // (Safari sometimes confused itself fetching the same URL twice) and
+  // hid loading errors behind a silent path.  We also cache-bust with
+  // ?v=25.4 because iOS Safari aggressively caches anatomy.svg and may
+  // still be serving an earlier broken (pre-flatten) version.
+  examAnatomyImg.onload = function () {
     if (state.currentExam === ex) {
-      examAnatomyImg.src = ex.assetAnatomy;
       examAnatomyImg.dataset.exam = ex.id;
     }
   };
-  probe.onerror = function () {
-    if (state.currentExam === ex) {
-      examAnatomyImg.removeAttribute('src');
-      delete examAnatomyImg.dataset.exam;
-      examAnatomyImg.classList.remove('show');
-    }
+  examAnatomyImg.onerror = function () {
+    examAnatomyImg.removeAttribute('src');
+    delete examAnatomyImg.dataset.exam;
+    examAnatomyImg.classList.remove('show');
   };
-  probe.src = ex.assetAnatomy;
+  examAnatomyImg.src = ex.assetAnatomy + '?v=25.4';
 }
 
 // v24.1: render the exam reference card under the HUD.  Looks up the current
