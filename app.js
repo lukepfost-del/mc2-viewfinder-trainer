@@ -699,17 +699,24 @@ function applyCassetteTransform(p, l2s) {
   cassetteImg.style.transform = matrix3dFromH(T_i_to_s);
   cassetteImg.classList.add('show');
 
-  // v24.2: anatomy overlay (Simulated Exam).  The 720x720 img is sized so
-  // its full extent fills the active-area square (activeAreaCm wide centered
-  // on local origin).  object-fit: contain on the img keeps the anatomy
-  // SVG's aspect, so it sits roughly centered on the cassette — matching
-  // how it appears in the paired "Anatomy + Cassette" reference.
+  // v28: anatomy overlay (Simulated Exam).  The anatomy.svg is now derived
+  // from cassette-a.svg, inheriting its viewBox AND the anatomy's position
+  // relative to the cassette.  We transform using per-exam cassetteMeta so
+  // the SVG's implicit cassette location lands on the trainer's photo
+  // cassette — making the HUD anatomy match the preview exactly.
   if (examAnatomyImg.dataset.exam) {
-    const ANATOMY_SCALE = 1.0;     // 1.0 = anatomy span equals active area
-    const aaCm = SETTINGS.activeAreaCm * ANATOMY_SCALE;
-    const aPxToCm = aaCm / Wpx;
-    const aCx = Wpx / 2;
-    const aCy = Wpx / 2;
+    const ex2 = state.currentExam;
+    const m = ex2 && ex2.cassetteMeta;
+    const aVbW   = m ? m.vbW         : Wpx;
+    const aVbH   = m ? m.vbH         : Wpx;
+    const aFrac  = m ? m.activeWFrac : 1.0;
+    const aCxFr  = m ? m.activeCx    : 0.5;
+    const aCyFr  = m ? m.activeCy    : 0.5;
+    // activeWFrac of vbW = activeAreaCm of physical width
+    const aImgSpanCm = SETTINGS.activeAreaCm / aFrac;
+    const aPxToCm = aImgSpanCm / aVbW;
+    const aCx = aVbW * aCxFr;
+    const aCy = aVbH * aCyFr;
     const T_a_to_l = [
       aPxToCm, 0, -aCx * aPxToCm,
       0, aPxToCm, -aCy * aPxToCm,
@@ -717,6 +724,12 @@ function applyCassetteTransform(p, l2s) {
     ];
     const T_a_to_s = mul3x3(l2s.H_l_to_s, T_a_to_l);
     examAnatomyImg.style.transform = matrix3dFromH(T_a_to_s);
+    // Set element to the SVG's natural dimensions so the transform maps
+    // 1 SVG-px to 1 element-px.
+    if (examAnatomyImg.style.width !== aVbW + 'px') {
+      examAnatomyImg.style.width  = aVbW + 'px';
+      examAnatomyImg.style.height = aVbH + 'px';
+    }
     examAnatomyImg.classList.add('show');
   }
 }
@@ -1200,32 +1213,16 @@ function startPlay(opts) {
 // counter with backface-visibility + transform: translateZ(0).
 function loadExamAnatomyOverlay() {
   const ex = state.currentExam;
-  if (!ex) {
-    examAnatomyImg.removeAttribute('src');
-    delete examAnatomyImg.dataset.exam;
-    examAnatomyImg.classList.remove('show');
-    setCassetteImageForExam(null);
-    return;
-  }
-  // v27: cassette-a.svg includes both cassette and anatomy in their
-  // correct relative positions — render it directly as the cassette
-  // image and skip the separate anatomy overlay.
-  if (ex.cassetteMeta) {
-    setCassetteImageForExam(ex);
+  if (!ex || !ex.assetAnatomy) {
     examAnatomyImg.removeAttribute('src');
     delete examAnatomyImg.dataset.exam;
     examAnatomyImg.classList.remove('show');
     return;
   }
-  // Fallback path — exam without cassetteMeta uses anatomy-only overlay
-  // on the default cassette photo (legacy v24.2/v25.x behavior).
-  setCassetteImageForExam(null);
-  if (!ex.assetAnatomy) {
-    examAnatomyImg.removeAttribute('src');
-    delete examAnatomyImg.dataset.exam;
-    examAnatomyImg.classList.remove('show');
-    return;
-  }
+  // v28: cassette stays as the default photo.  anatomy.svg is now derived
+  // from cassette-a.svg and inherits the cassette's viewBox + the anatomy's
+  // preview-correct position.  Transform uses cassetteMeta (see
+  // applyCassetteTransform).
   examAnatomyImg.onload = function () {
     if (state.currentExam === ex) examAnatomyImg.dataset.exam = ex.id;
   };
@@ -1234,7 +1231,7 @@ function loadExamAnatomyOverlay() {
     delete examAnatomyImg.dataset.exam;
     examAnatomyImg.classList.remove('show');
   };
-  examAnatomyImg.src = ex.assetAnatomy + '?v=27';
+  examAnatomyImg.src = ex.assetAnatomy + '?v=28';
 }
 
 // v27: swap the cassette <img> between the default photo and an exam's
