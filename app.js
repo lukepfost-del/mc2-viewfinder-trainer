@@ -1904,8 +1904,14 @@ examStartBtn.addEventListener('click', function () {
     sidCm: exam.sidCm,
     initialMode: examState.selectedMode,
     settings: exam.settings,   // { single:{kV,mAs}, ddr:{...}, fluoro:{...} }
-    assetSvg:  exam.assetSvg,
-    notes:     exam.notes,
+    // v25.6: assetAnatomy is what loadExamAnatomyOverlay reads to fetch the
+    // HUD overlay artwork — previously omitted from the stash, which meant
+    // the early-return path always fired and the anatomy never loaded.
+    assetAnatomy:   exam.assetAnatomy,
+    assetCassetteA: exam.assetCassetteA,
+    assetCassetteB: exam.assetCassetteB,
+    assetSvg:       exam.assetSvg,
+    notes:          exam.notes,
   };
   // Sync the HUD mode to the mode the user picked on the detail card so the
   // recommended values match what they were just looking at.
