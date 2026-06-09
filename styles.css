@@ -515,7 +515,7 @@ html, body {
 .exam-screen-inner {
   max-width: 760px; width: 100%;
   margin: 0 auto;
-  display: flex; flex-direction: column; gap: var(--s-6);
+  display: flex; flex-direction: column; gap: var(--s-4);
 }
 .exam-screen-header {
   display: flex; align-items: center; gap: var(--s-4);
@@ -638,14 +638,14 @@ html, body {
   background: var(--bg-raised);
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-lg);
-  padding: var(--s-5);
-  display: flex; flex-direction: column; gap: var(--s-5);
+  padding: var(--s-4);
+  display: flex; flex-direction: column; gap: var(--s-3);
   box-shadow: var(--elev-2);
 }
 .exam-card-illus {
   position: relative;
   width: 100%; aspect-ratio: 1 / 1;
-  max-width: 320px; align-self: center;
+  max-width: 220px; align-self: center;
   background: var(--bg-sunken);
   border-radius: var(--r-md);
   border: 1px solid var(--border-subtle);
@@ -720,7 +720,7 @@ html, body {
   border-radius: 0 4px 4px 0;
 }
 
-.exam-card-specs { display: flex; flex-direction: column; gap: var(--s-5); }
+.exam-card-specs { display: flex; flex-direction: column; gap: var(--s-3); }
 
 .spec-section { display: flex; flex-direction: column; gap: var(--s-3); }
 /* MC2 eyebrow */
@@ -750,9 +750,8 @@ html, body {
   color: var(--text-tertiary);
 }
 .spec-value {
-  /* MONO — per MC2 spec measured values use JetBrains Mono */
   font-family: var(--ff-mono);
-  font-size: 32px; line-height: 1.1;
+  font-size: 26px; line-height: 1.1;
   font-weight: 500;
   letter-spacing: -0.01em;
   color: var(--text-primary);
@@ -792,37 +791,37 @@ html, body {
   box-shadow: var(--elev-1);
 }
 .spec-mode-tab:hover:not(.active) { color: var(--text-primary); background: rgba(255,255,255,0.05); }
-/* Warning callout — MC2 status warning */
+/* v26.1: casual disclaimer, not a card. */
 .exam-notes {
-  font-size: 14px; line-height: 20px;
-  color: #FFD8C5;
-  background: rgba(232,112,71,0.10);
-  border: 1px solid rgba(232,112,71,0.35);
-  border-left-width: 4px;
-  border-radius: var(--r-sm);
-  padding: var(--s-3) var(--s-4);
+  font-size: 12px; line-height: 16px;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin-top: 2px;
 }
+.exam-notes::before { content: '* '; color: var(--text-tertiary); }
 
 /* Start Exam — MC2 canonical primary button XL (the single primary action) */
 .exam-start-btn {
   margin-top: var(--s-2);
   background: var(--brand-primary);
   border: 0;
-  border-radius: var(--r-lg);
+  border-radius: var(--r-md);
   color: var(--on-brand);
-  padding: var(--s-6) var(--s-8);
+  padding: var(--s-3) var(--s-6);
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  gap: var(--s-3);
+  gap: var(--s-2);
   box-shadow: var(--elev-2);
   font-family: var(--ff-sans);
   font-weight: 600;
-  min-height: 88px;
+  min-height: 56px;
   transition: background var(--dur-fast) var(--ease-out),
               transform var(--dur-instant) var(--ease-out),
               box-shadow var(--dur-fast) var(--ease-out);
 }
-.exam-start-icon { width: 36px; height: 36px; }
+.exam-start-icon { width: 24px; height: 24px; }
 .exam-start-label {
   font-size: 18px; line-height: 26px;
   font-weight: 600;
@@ -839,14 +838,17 @@ html, body {
 }
 
 @media (max-width: 520px) {
-  .exam-screen-title h2 { font-size: 22px; line-height: 28px; }
-  .exam-card { padding: var(--s-4); gap: var(--s-4); }
-  .exam-card-illus { max-width: 260px; }
-  .exam-card-specs { gap: var(--s-4); }
-  .spec-value { font-size: 28px; }
-  .exam-start-btn { min-height: 72px; padding: var(--s-5) var(--s-6); }
-  .exam-start-label { font-size: 16px; }
-  .exam-start-icon { width: 28px; height: 28px; }
+  .exam-screen-title h2 { font-size: 20px; line-height: 26px; }
+  .exam-card { padding: var(--s-3); gap: var(--s-2); }
+  .exam-card-illus { max-width: 180px; }
+  .exam-card-specs { gap: var(--s-2); }
+  .spec-value { font-size: 24px; }
+  .spec-section-label { font-size: 11px; }
+  .spec-label { font-size: 11px; }
+  .exam-start-btn { min-height: 52px; padding: var(--s-2) var(--s-5); margin-top: 0; }
+  .exam-start-label { font-size: 15px; letter-spacing: 0.02em; }
+  .exam-start-icon { width: 22px; height: 22px; }
+  .exam-screen-inner { gap: var(--s-3); }
 }
 
 /* ===================================================================
@@ -917,11 +919,8 @@ html, body {
 }
 /* MC2 eyebrow — chrome step label */
 .prompt-step {
-  font-size: 12px; line-height: 16px;
-  letter-spacing: 0.14em; text-transform: uppercase;
-  font-weight: 600;
-  color: var(--brand-primary-soft);
-  margin-bottom: var(--s-1);
+  /* v26.1: hidden — the level pill in the top bar already shows this. */
+  display: none;
 }
 .prompt-text {
   font-family: var(--ff-sans);
@@ -1067,6 +1066,7 @@ html, body {
   font-size: clamp(18px, 4vw, 28px);
 }
 #mode-value {
+  display: flex; align-items: center; justify-content: center; line-height: 1;
   left: 37.78%; top: 91.5%; width: 24.17%;
   text-align: center; color: #fff;
   font-size: clamp(16px, 3.6vw, 24px); font-weight: 800;
@@ -1430,14 +1430,15 @@ html, body {
    =================================================================== */
 #exam-ref-card {
   width: 100%; max-width: 460px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   background: var(--bg-raised);
   border: 1px solid var(--border-subtle);
   border-radius: var(--r-md);
-  padding: 10px 14px;
+  padding: 8px 12px;
   display: flex; flex-direction: column;
-  gap: var(--s-2);
+  gap: 6px;
   box-shadow: var(--elev-1);
+  flex-shrink: 0;
 }
 .exam-ref-head {
   display: flex; align-items: center; gap: var(--s-2);
@@ -1501,8 +1502,8 @@ html, body {
 .trigger {
   pointer-events: auto;
   flex: 1; max-width: 460px;
-  min-height: 72px;
-  border-radius: var(--r-lg);
+  min-height: 60px;
+  border-radius: var(--r-md);
   background: rgba(255,255,255,0.06);
   border: 1px solid var(--border-default);
   color: var(--text-primary);

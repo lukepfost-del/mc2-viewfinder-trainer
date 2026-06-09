@@ -109,7 +109,7 @@ def main() -> int:
         return 1
     processed = 0
     skipped = 0
-    for svg in sorted(ROOT.rglob("anatomy.svg")):
+    for svg in sorted(list(ROOT.rglob("anatomy.svg")) + list(ROOT.rglob("cassette-a.svg")) + list(ROOT.rglob("cassette-b.svg"))):
         bak = svg.with_suffix(".svg.bak")
         # Always re-process from the backup if it exists, so re-runs are idempotent.
         source_path = bak if bak.exists() else svg
@@ -122,15 +122,6 @@ def main() -> int:
             skipped += 1
             continue
         svg.write_text(flat, encoding="utf-8")
-        print(f"  flattened: {svg.relative_to(ROOT)}")
-        processed += 1
-    print(f"\nDone. {processed} flattened, {skipped} unchanged.")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-tf-8")
         print(f"  flattened: {svg.relative_to(ROOT)}")
         processed += 1
     print(f"\nDone. {processed} flattened, {skipped} unchanged.")
