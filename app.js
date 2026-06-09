@@ -1175,25 +1175,59 @@ function startPlay(opts) {
 // The `data-exam` attribute on the img element gates the matrix3d transform
 // inside applyCassetteTransform — so when anatomy is missing, the overlay
 // stays invisible and isn't transformed at all.
+// Process the root <svg> tag so it fills the wrapper:
+//   - replace fixed width="..."/height="..." with 100%
+//   - force preserveAspectRatio="xMidYMid meet" so the anatomy stays
+//     aspect-correct and centered inside the 720x720 wrapper (same visual
+//     contract the old <img object-fit:contain> setup provided).
+// Only the FIRST <svg ...> tag is touched, so nested <svg> use (rare in
+// these assets) is left alone.
+const ANATOMY_ROOT_SVG_RE = /<svg\b[^>]*>/;
+function processAnatomySvg(svgText) {
+  return svgText.replace(ANATOMY_ROOT_SVG_RE, function (tag) {
+    let t = tag;
+    t = t.replace(/\s+width="[^"]*"/i, '');
+    t = t.replace(/\s+height="[^"]*"/i, '');
+    t = t.replace(/\s+preserveAspectRatio="[^"]*"/i, '');
+    return t.replace(/\s*\/?>$/,
+      ' width="100%" height="100%" preserveAspectRatio="xMidYMid meet">');
+  });
+}
+
 function loadExamAnatomyOverlay() {
   const ex = state.currentExam;
   if (!ex || !ex.assetAnatomy) {
-    examAnatomyImg.removeAttribute('src');
+    examAnatomyImg.innerHTML = '';
     delete examAnatomyImg.dataset.exam;
     examAnatomyImg.classList.remove('show');
     return;
   }
-  const probe = new Image();
-  probe.onload = function () {
-    examAnatomyImg.src = ex.assetAnatomy;
+  // If we've already fetched this exam's SVG, reuse it — switching exams
+  // round-trips quickly and avoids a flash of empty overlay.
+  if (ex.assetAnatomyText) {
+    examAnatomyImg.innerHTML = ex.assetAnatomyText;
     examAnatomyImg.dataset.exam = ex.id;
-  };
-  probe.onerror = function () {
-    examAnatomyImg.removeAttribute('src');
-    delete examAnatomyImg.dataset.exam;
-    examAnatomyImg.classList.remove('show');
-  };
-  probe.src = ex.assetAnatomy;
+    return;
+  }
+  fetch(ex.assetAnatomy)
+    .then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    })
+    .then(function (text) {
+      ex.assetAnatomyText = processAnatomySvg(text);
+      // The user may have moved to a different exam during the fetch —
+      // only inject if this is still the active one.
+      if (state.currentExam === ex) {
+        examAnatomyImg.innerHTML = ex.assetAnatomyText;
+        examAnatomyImg.dataset.exam = ex.id;
+      }
+    })
+    .catch(function () {
+      examAnatomyImg.innerHTML = '';
+      delete examAnatomyImg.dataset.exam;
+      examAnatomyImg.classList.remove('show');
+    });
 }
 
 // v24.1: render the exam reference card under the HUD.  Looks up the current
@@ -1639,7 +1673,7 @@ function showStartScreen() {
   // v24.2: also clear the HUD anatomy overlay.
   delete examAnatomyImg.dataset.exam;
   examAnatomyImg.classList.remove('show');
-  examAnatomyImg.removeAttribute('src');
+  examAnatomyImg.innerHTML = '';
   startScreen.classList.remove('hidden');
   renderTileStars();
   viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid','armed','blocked','searching');
@@ -1948,6 +1982,7 @@ function stepArr(arr, val, dir) {
   const j = ((i < 0 ? 0 : i) + dir + n) % n;
   return arr[j];
 }
+
 
 // v21 startup: boot video (HTML default visible) → welcome screen → route
 // picker.  No initial showStartScreen() call — boot screen is visible by

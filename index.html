@@ -206,8 +206,10 @@
       <video id="video" autoplay muted playsinline webkit-playsinline></video>
       <img id="cassette-img" src="assets/cassette-full.webp" alt="" />
       <!-- v24.2: Simulated Exam anatomy overlay — rides the cassette's
-           transform so it tracks the printed marker. -->
-      <img id="exam-anatomy-img" alt="" />
+           transform so it tracks the printed marker.  Container is a div
+           with the SVG inlined into it at load time (live vector, not a
+           rasterized <img>), so the matrix3d transform doesn't blur it. -->
+      <div id="exam-anatomy-img" aria-hidden="true"></div>
       <canvas id="overlay"></canvas>
     </div>
 

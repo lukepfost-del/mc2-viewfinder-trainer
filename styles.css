@@ -782,10 +782,17 @@ html, body {
   pointer-events: none;
   opacity: 0;
   transition: opacity 200ms;
-  object-fit: contain;   /* preserve anatomy SVG aspect inside the 720x720 box */
   z-index: 4;            /* above cassette (z=2) + overlay canvas (z=3) */
 }
 #exam-anatomy-img.show { opacity: 1; }
+/* Inline SVG fills the 720x720 wrapper; xMidYMid meet (set on the svg
+   root in JS) preserves the anatomy aspect and centers it inside the
+   active area — the same visual behavior the old img+object-fit had,
+   but rendered as live vector so the matrix3d transform stays crisp. */
+#exam-anatomy-img > svg {
+  width: 100%; height: 100%;
+  display: block;
+}
 #overlay {
   position: absolute; inset: 0; width: 100%; height: 100%;
   pointer-events: none; z-index: 3;
