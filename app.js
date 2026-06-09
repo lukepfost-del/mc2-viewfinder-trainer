@@ -1182,9 +1182,23 @@ function startPlay(opts) {
 //     contract the old <img object-fit:contain> setup provided).
 // Only the FIRST <svg ...> tag is touched, so nested <svg> use (rare in
 // these assets) is left alone.
+//
+// v25.0: ALSO strip every `filter="url(#...)"` attribute and the `<defs>`
+// <filter> blocks themselves.  The anatomy SVGs from Figma carry decorative
+// drop-shadow filters (feGaussianBlur).  When inlined under a CSS matrix3d
+// transform, those filtered regions are rasterized at the element's current
+// size before the transform is applied — re-blurring the anatomy on iOS
+// despite the inline-SVG fix.  Removing the filters loses only the
+// decorative drop shadow; the anatomy outline + fill renders crisp vector
+// at any scale.
 const ANATOMY_ROOT_SVG_RE = /<svg\b[^>]*>/;
+const ANATOMY_FILTER_ATTR_RE = /\sfilter="url\(#[^"]*\)"/gi;
+const ANATOMY_FILTER_DEFS_RE = /<filter\b[\s\S]*?<\/filter>/gi;
 function processAnatomySvg(svgText) {
-  return svgText.replace(ANATOMY_ROOT_SVG_RE, function (tag) {
+  let s = svgText
+    .replace(ANATOMY_FILTER_ATTR_RE, '')   // drop filter= refs on groups
+    .replace(ANATOMY_FILTER_DEFS_RE, '');  // drop <filter> blocks in <defs>
+  s = s.replace(ANATOMY_ROOT_SVG_RE, function (tag) {
     let t = tag;
     t = t.replace(/\s+width="[^"]*"/i, '');
     t = t.replace(/\s+height="[^"]*"/i, '');
@@ -1192,6 +1206,7 @@ function processAnatomySvg(svgText) {
     return t.replace(/\s*\/?>$/,
       ' width="100%" height="100%" preserveAspectRatio="xMidYMid meet">');
   });
+  return s;
 }
 
 function loadExamAnatomyOverlay() {
