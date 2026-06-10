@@ -184,7 +184,7 @@ const SETTINGS = {
   // v28.7: vertical offset for HUD anatomy as a FRACTION of the SVG's
   // viewBox height.  Positive = anatomy renders higher (anchor point
   // moves down in SVG coords).  Iterate this value to dial in.
-  anatomyYShiftFrac: 0.10,
+  anatomyYShiftFrac: 0.07,
 };
 
 const COLORS = {
@@ -2017,13 +2017,38 @@ function showCaptureScreen(pose) {
   const right  = Math.min(100, axPct + fhPct);
   const top    = Math.max(0, ayPct - fhPct);
   const bottom = Math.min(100, ayPct + fhPct);
-  // Four black strips that cover everything outside the collim rect.
-  captureMaskT.style.cssText = 'position:absolute;left:0;right:0;top:0;height:' + top + '%;background:rgba(0,0,0,0.86);pointer-events:none;';
-  captureMaskB.style.cssText = 'position:absolute;left:0;right:0;top:' + bottom + '%;bottom:0;background:rgba(0,0,0,0.86);pointer-events:none;';
-  captureMaskL.style.cssText = 'position:absolute;left:0;top:' + top + '%;height:' + (bottom - top) + '%;width:' + left + '%;background:rgba(0,0,0,0.86);pointer-events:none;';
-  captureMaskR.style.cssText = 'position:absolute;left:' + right + '%;top:' + top + '%;height:' + (bottom - top) + '%;right:0;background:rgba(0,0,0,0.86);pointer-events:none;';
-  // Thin bright outline around the collim rect.
-  captureOutline.style.cssText = 'position:absolute;left:' + left + '%;top:' + top + '%;width:' + (right - left) + '%;height:' + (bottom - top) + '%;border:1px solid rgba(171,209,255,0.55);pointer-events:none;box-sizing:border-box;';
+  // v28.10: replace 4-strip square mask with an SVG pillow shape that
+  // matches the HUD collimator (drawCollimationPillow, bowFraction=0.025).
+  // The pillow path traces 4 corners with quadratic curves bowed outward
+  // along the outward normal by edgeLen × bowFraction.
+  const BOW = 0.025;
+  const cx = (left + right) / 2;
+  const cy = (top + bottom) / 2;
+  const edge = (right - left);      // square — width=height in % terms
+  const bow  = edge * BOW;
+  // SVG viewBox is 0..100, our left/right/top/bottom are already % (0..100).
+  // Build the pillow path: M corner, Q ctrl midEdge, Q ctrl nextEdge, ...
+  const pillow =
+    'M' + left  + ',' + top    +
+    ' Q' + cx           + ',' + (top    - bow) + ' ' + right + ',' + top    +
+    ' Q' + (right + bow) + ',' + cy             + ' ' + right + ',' + bottom +
+    ' Q' + cx            + ',' + (bottom + bow) + ' ' + left  + ',' + bottom +
+    ' Q' + (left  - bow) + ',' + cy             + ' ' + left  + ',' + top    +
+    ' Z';
+  // Mask = full-frame rect with the pillow cut out via fill-rule:evenodd.
+  const maskPath = 'M0,0 L100,0 L100,100 L0,100 Z ' + pillow;
+  const collimSvg   = document.getElementById('capture-collim-svg');
+  const collimMask  = document.getElementById('capture-collim-mask-path');
+  const collimOutP  = document.getElementById('capture-collim-outline-path');
+  if (collimMask)  collimMask.setAttribute('d', maskPath);
+  if (collimOutP)  collimOutP.setAttribute('d', pillow);
+  if (collimSvg)   collimSvg.style.display = 'block';
+  // Legacy strips: zero them out (no-op if elements present from older HTML).
+  if (captureMaskT) captureMaskT.style.cssText = 'display:none';
+  if (captureMaskB) captureMaskB.style.cssText = 'display:none';
+  if (captureMaskL) captureMaskL.style.cssText = 'display:none';
+  if (captureMaskR) captureMaskR.style.cssText = 'display:none';
+  if (captureOutline) captureOutline.style.cssText = 'display:none';
   // v28.8: position the anatomy SVG so its viewBox-internal active area
   // fills the capture frame, then apply the same anatomyScale +
   // anatomyYShiftFrac as the HUD so the radiograph hand visually matches
@@ -2054,7 +2079,6 @@ function showCaptureScreen(pose) {
   }
   // Header metadata.
   captureName.textContent = state.currentExam.name;
-  const fhCm = pose.fieldHalf.toFixed(1);
   const fwCm = (2 * pose.fieldHalf).toFixed(1);
   captureInfo.textContent =
     state.modes[state.modeIdx] + '  \u00B7  ' +
