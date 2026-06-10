@@ -180,7 +180,7 @@ const SETTINGS = {
   // because the cassette PHOTO shows lots of context around the active area
   // (photo span 59cm, anatomy span 30cm).  Bump by ~1.4 so the anatomy
   // visually fills proportional space, matching the exam-detail preview.
-  anatomyScale: 1.4,
+  anatomyScale: 1.7,
 };
 
 const COLORS = {
