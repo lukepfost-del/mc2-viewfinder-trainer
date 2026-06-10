@@ -1644,7 +1644,6 @@ html, body {
 }
 .capture-btn {
   font-family: var(--ff-sans);
-  font-size: 16px; line-height: 24px;
   font-weight: 600;
   min-height: 56px;
   border-radius: var(--r-md);
