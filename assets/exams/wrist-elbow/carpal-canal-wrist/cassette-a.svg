@@ -56,16 +56,12 @@
 <path d="M255.339 42.0425C258.775 44.4848 262.621 47.9843 258.948 52.1035C258.766 52.2949 258.465 52.0124 258.648 51.821C259.769 50.372 260.352 48.1848 259.24 46.5718C258.165 44.9496 256.597 43.6282 255.075 42.4161C254.838 42.2521 255.103 41.8785 255.339 42.0516V42.0425Z" fill="#595CFF"/>
 <path d="M221.885 37.2581C224.091 37.9598 226.26 38.7709 228.337 39.8098C230.16 40.6755 232.001 41.8876 231.017 44.1659C230.707 44.8038 230.433 45.4053 229.704 45.6696C229.376 45.7243 229.285 45.2139 229.622 45.1592C230.433 44.0657 230.834 42.2066 229.376 41.4228C227.025 39.8462 224.373 38.7435 221.812 37.4859C221.685 37.4312 221.758 37.2216 221.894 37.2672L221.885 37.2581Z" fill="#595CFF"/>
 </g>
-<g filter="url(#filter0_f_259_12950)">
+<g>
 <path d="M65.5 135.5L21.5 80L16.5 292.5L53.5 302.5L85.5 275L65.5 135.5Z" fill="#F1F4F9"/>
 </g>
 </g>
 <defs>
-<filter id="filter0_f_259_12950" x="-11.5" y="52" width="125" height="278.5" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-<feFlood flood-opacity="0" result="BackgroundImageFix"/>
-<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
-<feGaussianBlur stdDeviation="14" result="effect1_foregroundBlur_259_12950"/>
-</filter>
+
 <clipPath id="clip0_259_12950">
 <rect width="615" height="442" fill="white"/>
 </clipPath>

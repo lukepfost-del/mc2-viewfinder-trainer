@@ -84,17 +84,13 @@
 <path d="M17 307L60.8205 299.294C73.9599 296.734 87.0411 299.973 87.0411 299.973C78.1684 327.124 95.138 389.515 95.138 389.515C92.2193 409.287 97.3296 506.208 97.3296 506.208H17" fill="#E5E5FF"/>
 <path d="M17 307L60.8205 299.294C73.9599 296.734 87.0411 299.973 87.0411 299.973C78.1684 327.124 95.138 389.515 95.138 389.515C92.2193 409.287 97.3296 506.208 97.3296 506.208H17" stroke="#595CFF" stroke-width="2.06003" stroke-linecap="round" stroke-linejoin="round"/>
 <g clip-path="url(#clip1_236_19614)">
-<g filter="url(#filter0_f_236_19614)">
+<g>
 <path d="M-45.5 532L-39 210.5L45 192.5L41 448L132 476.5L132 488.5L140 542.5L-45.5 532Z" fill="#F1F4F9"/>
 </g>
 </g>
 </g>
 <defs>
-<filter id="filter0_f_236_19614" x="-70.5" y="167.5" width="235.5" height="400" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-<feFlood flood-opacity="0" result="BackgroundImageFix"/>
-<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
-<feGaussianBlur stdDeviation="12.5" result="effect1_foregroundBlur_236_19614"/>
-</filter>
+
 <clipPath id="clip0_236_19614">
 <rect width="519" height="504" fill="white"/>
 </clipPath>

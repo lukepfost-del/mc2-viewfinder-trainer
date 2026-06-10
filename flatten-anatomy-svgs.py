@@ -164,7 +164,12 @@ def flatten_cassette_svg(text: str) -> str:
     with a stroked silhouette.  v28.9: the cassette mask (smallest path-N
     number = drawn first by Figma) gets stroked BLACK; all other masks
     (anatomy) keep the brand-blue stroke.
+    v28.11: ALSO strip Figma filter blocks/refs (drop-shadow defs) — they
+    cause iOS rasterization blur (see v25.0 fix for anatomy.svg).
     """
+    # Strip filters first — same as flatten_svg does for anatomy files.
+    text = FILTER_BLOCK_RE.sub("", text)
+    text = FILTER_ATTR_RE.sub("", text)
     # Identify the cassette mask: smallest path-N number.
     mask_re = re.compile(r'<mask\s+id="(path-(\d+)-outside-[^"]+)"', re.IGNORECASE)
     all_masks = [(int(m.group(2)), m.group(1)) for m in mask_re.finditer(text)]
@@ -297,7 +302,7 @@ def main() -> int:
                     anatomy_target.with_suffix(".svg.bak").write_text(
                         anatomy_target.read_text(encoding="utf-8"), encoding="utf-8")
                 except OSError:
-                    pass
+                                        pass
             anatomy_target.write_text(positioned, encoding="utf-8")
             print(f"  derived positioned anatomy: {anatomy_target.relative_to(ROOT)}")
     print(f"\nDone. {processed} flattened, {skipped} unchanged.")
@@ -306,7 +311,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-# v28: from each cassette-a.svg, derive the positioned anatomy and
+sette-a.svg, derive the positioned anatomy and
         # overwrite the sibling anatomy.svg.  This makes the HUD's anatomy
         # overlay inherit the cassette-a's viewBox (so it can be transformed
         # using the per-exam cassetteMeta to match the preview position).
