@@ -2024,9 +2024,33 @@ function showCaptureScreen(pose) {
   captureMaskR.style.cssText = 'position:absolute;left:' + right + '%;top:' + top + '%;height:' + (bottom - top) + '%;right:0;background:rgba(0,0,0,0.86);pointer-events:none;';
   // Thin bright outline around the collim rect.
   captureOutline.style.cssText = 'position:absolute;left:' + left + '%;top:' + top + '%;width:' + (right - left) + '%;height:' + (bottom - top) + '%;border:1px solid rgba(171,209,255,0.55);pointer-events:none;box-sizing:border-box;';
-  // Anatomy artwork (already loaded for HUD, reuse the same URL).
+  // v28.8: position the anatomy SVG so its viewBox-internal active area
+  // fills the capture frame, then apply the same anatomyScale +
+  // anatomyYShiftFrac as the HUD so the radiograph hand visually matches
+  // what the operator just saw in the HUD.  The frame represents the full
+  // physical active area (21.35cm × 21.35cm).
   if (state.currentExam.assetAnatomy) {
     captureAnatomy.src = state.currentExam.assetAnatomy;
+    const m = state.currentExam.cassetteMeta || { vbW: 740, vbH: 956, activeCx: 0.5, activeCy: 0.5096, activeWFrac: 0.7207 };
+    const scale = (SETTINGS.anatomyScale || 1);
+    const yShift = (SETTINGS.anatomyYShiftFrac || 0);
+    // Anatomy width in frame %: the SVG's full vbW maps to (1/activeWFrac)
+    // of the frame width (so active region = 100% frame width), times scale.
+    const wPct = (100 / m.activeWFrac) * scale;
+    const hPct = wPct * (m.vbH / m.vbW);
+    // Active center should land at frame center (50%, 50%).  Anchor point
+    // in SVG = (activeCx, activeCy + yShift) fractions of viewBox.
+    const ancXFr = m.activeCx;
+    const ancYFr = m.activeCy + yShift;
+    const leftPct = 50 - ancXFr * wPct;
+    const topPct  = 50 - ancYFr * hPct;
+    captureAnatomy.style.cssText =
+      'position:absolute;' +
+      'left:' + leftPct + '%;' +
+      'top:' + topPct + '%;' +
+      'width:' + wPct + '%;' +
+      'height:' + hPct + '%;' +
+      'filter:brightness(0) invert(1) drop-shadow(0 0 1px rgba(171,209,255,0.6)) drop-shadow(0 0 6px rgba(89,92,255,0.30));';
   }
   // Header metadata.
   captureName.textContent = state.currentExam.name;
