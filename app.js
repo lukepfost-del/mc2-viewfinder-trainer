@@ -1970,7 +1970,39 @@ examStartBtn.addEventListener('click', function () {
   try { MC2Audio.unlock(); } catch (e) {}
   try { startPlay(); } catch (e) { mc2Status('startPlay threw: ' + (e && e.message), 'error'); }
 });
-backBtn.addEventListener('click', function () { showStartScreen(); });
+// v28.14: if back is pressed during a Simulated Exam, return to the exam
+// DETAIL card (anatomy preview + kV/SID/mAs) instead of all the way to the
+// route picker — so the user can review and tap Start Exam again without
+// re-walking the section→view picker chain.  Outside exam mode, back still
+// goes to the route picker.
+backBtn.addEventListener('click', function () {
+  if (state.currentExam && examState && examState.selectedSectionId && examState.selectedExamId) {
+    const section = window.MC2_EXAMS_BY_SECTION[examState.selectedSectionId];
+    const exam = section && section.exams.find(function (e) { return e.id === examState.selectedExamId; });
+    if (exam && section) {
+      state.mode = MODE.NONE;
+      stopCamera();
+      appShell.classList.add('hidden');
+      examSectionsScreen.classList.add('hidden');
+      examViewsScreen.classList.add('hidden');
+      examRefCard.classList.add('hidden');
+      delete examAnatomyImg.dataset.exam;
+      examAnatomyImg.classList.remove('show');
+      examAnatomyImg.removeAttribute('src');
+      if (typeof setCassetteImageForExam === 'function') setCassetteImageForExam(null);
+      if (captureScreen) captureScreen.classList.add('hidden');
+      viewfinderEl.classList.remove('layer-aim','layer-center','layer-perp','layer-sid','armed','blocked','searching');
+      promptStrip.classList.add('hidden');
+      tutTarget.classList.add('hidden');
+      lcOverlay.classList.add('hidden');
+      renderExamDetail(exam, section);
+      examDetailScreen.classList.remove('hidden');
+      examDetailScreen.scrollTop = 0;
+      return;
+    }
+  }
+  showStartScreen();
+});
 muteBtn.addEventListener('click', function () {
   const m = !MC2Audio.isMuted();
   MC2Audio.setMuted(m);
