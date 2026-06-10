@@ -99,28 +99,64 @@ def flatten_svg(text: str) -> str:
 
 
 def derive_positioned_anatomy(cassette_text: str) -> str:
-    """Take a conservatively-flattened cassette-a.svg and produce an anatomy-
-    only SVG that keeps the cassette's viewBox.  The anatomy in the result
-    is positioned exactly where it was relative to the cassette in Figma,
-    so the HUD can overlay it on top of the photo cassette using the
-    per-exam cassetteMeta (vbW/H + activeCx/Cy/Frac)."""
+    """Take cassette-a.svg and produce an anatomy-only SVG that keeps the
+    cassette's viewBox.
+
+    Strategy:
+      - Identify the cassette mask: it's the mask with the SMALLEST
+        numeric prefix (Figma assigns these in drawing order, and the
+        cassette is always drawn first).
+      - DROP the cassette mask block AND its outer-masked path entirely.
+      - For any other masks (anatomy outline in some exam styles),
+        convert their outer path to a brand-stroked silhouette.
+      - Keep ALL <path> elements whose fill OR stroke uses the brand
+        color (this captures both the fill-style anatomy and the
+        silhouette-converted anatomy).
+    """
     text = cassette_text
-    # 1) Replace outside-mask anatomy paths with stroked silhouettes
-    #    (in case caller passed the raw original).
-    _, replace_outer = _silhouette_replacer(text)
+    # 1) Find all mask IDs with their numeric prefix.  The smallest = cassette.
+    mask_re = re.compile(r'<mask\s+id="(path-(\d+)-outside-[^"]+)"', re.IGNORECASE)
+    all_masks = [(int(m.group(2)), m.group(1)) for m in mask_re.finditer(text)]
+    cassette_mask_id = min(all_masks)[1] if all_masks else None
+    # 2) Build silhouettes for OTHER masks (anatomy when in mask form).
+    silhouettes = {}
+    for m in MASK_BLOCK_RE.finditer(text):
+        mid = m.group(1)
+        if mid == cassette_mask_id:
+            continue  # skip the cassette mask
+        inner_path = INNER_PATH_RE.search(m.group(2))
+        if inner_path:
+            silhouettes[mid] = inner_path.group(1)
+    # 3) Replace outer-masked paths: cassette → drop, anatomy → silhouette.
+    def replace_outer(match):
+        outer = match.group(0)
+        id_m = re.search(r'mask="url\(#([^)]+)\)"', outer)
+        if not id_m: return ""
+        mid = id_m.group(1)
+        if mid == cassette_mask_id:
+            return ""  # drop the cassette outline path
+        d = silhouettes.get(mid)
+        if not d: return ""
+        return (
+            f'<path d="{d}" fill="none" stroke="{BRAND}" '
+            f'stroke-width="{OUTLINE_STROKE_W}" '
+            f'stroke-linecap="round" stroke-linejoin="round"/>'
+        )
     text = OUTER_MASKED_PATH_RE.sub(replace_outer, text)
     text = MASK_BLOCK_RE.sub("", text)
-    # 2) Strip all white-fill paths (the cassette outline) and white-fill rects
-    #    (the active-area inner rect + handle bumpers).
-    text = re.sub(r'<path\b[^>]*?fill="white"[^>]*?/>', "", text, flags=re.IGNORECASE)
-    text = re.sub(r'<rect\b[^>]*?fill="white"[^>]*?/?>', "", text, flags=re.IGNORECASE)
-    # 3) Strip filter blocks, filter attrs (drop shadows), and clip-paths.
-    text = FILTER_BLOCK_RE.sub("", text)
-    text = FILTER_ATTR_RE.sub("", text)
-    text = re.sub(r'\sclip-path="url\(#[^"]*\)"', "", text, flags=re.IGNORECASE)
-    text = re.sub(r"<clipPath\b[\s\S]*?</clipPath>", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"<defs>\s*</defs>", "", text, flags=re.IGNORECASE)
-    return text
+    # 4) Get root <svg> tag, keep <path>s with brand color (fill or stroke).
+    root_match = re.search(r'<svg\b[^>]*>', text)
+    if not root_match:
+        return text
+    svg_open = root_match.group(0)
+    brand_lc = BRAND.lower()
+    kept = []
+    for m in re.finditer(r'<path\b[^>]*?/>', text):
+        elem = m.group(0)
+        if re.search(r'(fill|stroke)="' + re.escape(brand_lc) + r'"', elem, re.IGNORECASE):
+            kept.append(elem)
+    body = "\n".join(kept)
+    return svg_open + "\n" + body + "\n</svg>\n"
 
 
 def flatten_cassette_svg(text: str) -> str:
@@ -131,6 +167,52 @@ def flatten_cassette_svg(text: str) -> str:
     text = OUTER_MASKED_PATH_RE.sub(replace_outer, text)
     text = MASK_BLOCK_RE.sub("", text)
     return text
+
+
+
+# Section dir mapping: assets/exams subdir → Exam Assets section folder
+EXAM_SECTIONS = {
+    "hands-fingers": "Hands & Fingers",
+    "wrist-elbow": "Wrist & Elbow",
+    "arm-shoulder": "Arm & Shoulder",
+    "feet-toes": "Feet & Toes",
+    "ankle-leg-knee": "Ankle, Leg & Knee",
+}
+
+
+def _find_exam_assets_source(svg: Path):
+    """Given a path to an assets/exams/<section>/<exam>/cassette-{a,b}.svg,
+    locate the corresponding source SVG inside Exam Assets/.  Returns the
+    Path or None if no match."""
+    try:
+        section_id = svg.parent.parent.name
+        exam_id    = svg.parent.name
+        letter     = svg.stem.split("-")[-1]  # "a" or "b"
+        section_label = EXAM_SECTIONS.get(section_id)
+        if not section_label:
+            return None
+        # Walk Exam Assets/Positioning Assets/<Section>/<exam>/Anatomy + Cassette/
+        exam_assets_root = Path(__file__).parent / "Exam Assets" / "Positioning Assets" / section_label
+        if not exam_assets_root.is_dir():
+            return None
+        for ed in exam_assets_root.iterdir():
+            if not ed.is_dir():
+                continue
+            # match exam folder by slug
+            slug = re.sub(r"^-+|-+$", "", re.sub(r"[^a-z0-9]+", "-",
+                ed.name.lower().replace("\'", "").replace('"', "")))
+            if slug != exam_id:
+                continue
+            ac_dir = ed / "Anatomy + Cassette"
+            if not ac_dir.is_dir():
+                continue
+            svgs = sorted([f for f in ac_dir.iterdir() if f.suffix.lower() == ".svg"])
+            idx = "ab".index(letter) if letter in "ab" else 0
+            if idx < len(svgs):
+                return svgs[idx]
+        return None
+    except Exception:
+        return None
 
 
 def main() -> int:
@@ -144,11 +226,18 @@ def main() -> int:
                      + list(ROOT.rglob("cassette-b.svg")))
     for svg in targets:
         bak = svg.with_suffix(".svg.bak")
-        # Always re-process from the backup if it exists, so re-runs are idempotent.
-        # Guard against Windows-mount ghost entries where bak.exists() is True
-        # but the file is unreadable.
+        # For cassette-{a,b}.svg, read the canonical source directly from
+        # Exam Assets/ — the .bak shadow on the Windows mount is unreliable.
         original = None
-        if bak.exists():
+        if svg.name.startswith("cassette"):
+            src = _find_exam_assets_source(svg)
+            if src and src.is_file():
+                try:
+                    original = src.read_text(encoding="utf-8")
+                except OSError:
+                    original = None
+        # Otherwise use .bak if readable, else current svg content.
+        if original is None and bak.exists():
             try:
                 original = bak.read_text(encoding="utf-8")
             except (OSError, FileNotFoundError):
