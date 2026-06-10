@@ -178,9 +178,13 @@ const SETTINGS = {
   // v28.4: extra scale applied to anatomy overlay in HUD.  The strict math
   // (anatomy active-area = 21.35cm physical) makes the hand visually small
   // because the cassette PHOTO shows lots of context around the active area
-  // (photo span 59cm, anatomy span 30cm).  Bump by ~1.4 so the anatomy
-  // visually fills proportional space, matching the exam-detail preview.
-  anatomyScale: 1.7,
+  // (photo span 59cm, anatomy span 30cm).  Bump so the anatomy visually
+  // fills proportional space, matching the exam-detail preview.
+  anatomyScale: 2.0,
+  // v28.7: vertical offset for HUD anatomy as a FRACTION of the SVG's
+  // viewBox height.  Positive = anatomy renders higher (anchor point
+  // moves down in SVG coords).  Iterate this value to dial in.
+  anatomyYShiftFrac: 0.10,
 };
 
 const COLORS = {
@@ -726,7 +730,10 @@ function applyCassetteTransform(p, l2s) {
     const aImgSpanCm = (SETTINGS.activeAreaCm / aFrac) * (SETTINGS.anatomyScale || 1);
     const aPxToCm = aImgSpanCm / aVbW;
     const aCx = aVbW * aCxFr;
-    const aCy = aVbH * aCyFr;
+    // v28.7: shift anchor down by yShiftFrac × vbH so anatomy renders UP
+    // that much (treating a lower SVG point as world-origin pushes the
+    // drawing visually upward).
+    const aCy = aVbH * (aCyFr + (SETTINGS.anatomyYShiftFrac || 0));
     const T_a_to_l = [
       aPxToCm, 0, -aCx * aPxToCm,
       0, aPxToCm, -aCy * aPxToCm,
