@@ -160,10 +160,38 @@ def derive_positioned_anatomy(cassette_text: str) -> str:
 
 
 def flatten_cassette_svg(text: str) -> str:
-    """Conservative: cassette+anatomy combined.  Only replace the anatomy
-    outside-mask path with a stroked silhouette; leave the cassette
-    outline (white fills, clip-paths) entirely intact."""
-    _, replace_outer = _silhouette_replacer(text)
+    """Conservative: cassette+anatomy combined.  Replace each outside-mask
+    with a stroked silhouette.  v28.9: the cassette mask (smallest path-N
+    number = drawn first by Figma) gets stroked BLACK; all other masks
+    (anatomy) keep the brand-blue stroke.
+    """
+    # Identify the cassette mask: smallest path-N number.
+    mask_re = re.compile(r'<mask\s+id="(path-(\d+)-outside-[^"]+)"', re.IGNORECASE)
+    all_masks = [(int(m.group(2)), m.group(1)) for m in mask_re.finditer(text)]
+    cassette_mask_id = min(all_masks)[1] if all_masks else None
+    # Build silhouette table.
+    silhouettes = {}
+    for m in MASK_BLOCK_RE.finditer(text):
+        mid = m.group(1)
+        inner_path = INNER_PATH_RE.search(m.group(2))
+        if inner_path:
+            silhouettes[mid] = inner_path.group(1)
+    # Replace outer-masked paths: cassette → black stroke, anatomy → brand.
+    def replace_outer(match):
+        outer = match.group(0)
+        id_m = re.search(r'mask="url\(#([^)]+)\)"', outer)
+        if not id_m:
+            return outer
+        mid = id_m.group(1)
+        d = silhouettes.get(mid)
+        if not d:
+            return ""
+        color = "#000000" if mid == cassette_mask_id else BRAND
+        return (
+            f'<path d="{d}" fill="none" stroke="{color}" '
+            f'stroke-width="{OUTLINE_STROKE_W}" '
+            f'stroke-linecap="round" stroke-linejoin="round"/>'
+        )
     text = OUTER_MASKED_PATH_RE.sub(replace_outer, text)
     text = MASK_BLOCK_RE.sub("", text)
     return text
@@ -259,7 +287,26 @@ def main() -> int:
         else:
             print(f"  unchanged: {svg.relative_to(ROOT)}")
             skipped += 1
-        # v28: from each cassette-a.svg, derive the positioned anatomy and
+            # v28: from each cassette-a.svg, derive the positioned anatomy and
+        # overwrite the sibling anatomy.svg.
+        if svg.name == "cassette-a.svg":
+            positioned = derive_positioned_anatomy(original)
+            anatomy_target = svg.parent / "anatomy.svg"
+            if not anatomy_target.with_suffix(".svg.bak").exists() and anatomy_target.exists():
+                try:
+                    anatomy_target.with_suffix(".svg.bak").write_text(
+                        anatomy_target.read_text(encoding="utf-8"), encoding="utf-8")
+                except OSError:
+                    pass
+            anatomy_target.write_text(positioned, encoding="utf-8")
+            print(f"  derived positioned anatomy: {anatomy_target.relative_to(ROOT)}")
+    print(f"\nDone. {processed} flattened, {skipped} unchanged.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+# v28: from each cassette-a.svg, derive the positioned anatomy and
         # overwrite the sibling anatomy.svg.  This makes the HUD's anatomy
         # overlay inherit the cassette-a's viewBox (so it can be transformed
         # using the per-exam cassetteMeta to match the preview position).

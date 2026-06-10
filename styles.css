@@ -648,8 +648,9 @@ html, body {
      actually reads at a glance.  Mobile bumped from 180px to 300px below. */
   width: 100%; aspect-ratio: 1 / 1;
   max-width: 360px; align-self: center;
-  /* v28.5: light neutral preview background (matches Figma cassette card). */
-  background: #D9D9D9;
+  /* v28.5: light neutral preview background (matches Figma cassette card).
+     v28.9: nudged to the cool app neutral. */
+  background: #F1F4F9;
   border-radius: var(--r-md);
   border: 1px solid var(--border-subtle);
   display: flex; align-items: center; justify-content: center;
