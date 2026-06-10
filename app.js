@@ -175,6 +175,12 @@ const SETTINGS = {
   // buildLocalToScreen derives scale from the marker's natural screen size
   // so the cassette overlay scales naturally with SID.
   activeAreaScreenFrac: 0.33,
+  // v28.4: extra scale applied to anatomy overlay in HUD.  The strict math
+  // (anatomy active-area = 21.35cm physical) makes the hand visually small
+  // because the cassette PHOTO shows lots of context around the active area
+  // (photo span 59cm, anatomy span 30cm).  Bump by ~1.4 so the anatomy
+  // visually fills proportional space, matching the exam-detail preview.
+  anatomyScale: 1.4,
 };
 
 const COLORS = {
@@ -712,8 +718,12 @@ function applyCassetteTransform(p, l2s) {
     const aFrac  = m ? m.activeWFrac : 1.0;
     const aCxFr  = m ? m.activeCx    : 0.5;
     const aCyFr  = m ? m.activeCy    : 0.5;
-    // activeWFrac of vbW = activeAreaCm of physical width
-    const aImgSpanCm = SETTINGS.activeAreaCm / aFrac;
+    // activeWFrac of vbW = activeAreaCm of physical width.
+    // v28.4: multiply by anatomyScale fudge so the anatomy visually fills
+    // more of the cassette photo (which has extra context around the
+    // active area).  Active center still anchored at world origin, so
+    // the hand stays positioned over the active area — just larger.
+    const aImgSpanCm = (SETTINGS.activeAreaCm / aFrac) * (SETTINGS.anatomyScale || 1);
     const aPxToCm = aImgSpanCm / aVbW;
     const aCx = aVbW * aCxFr;
     const aCy = aVbH * aCyFr;

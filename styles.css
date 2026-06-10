@@ -644,8 +644,10 @@ html, body {
 }
 .exam-card-illus {
   position: relative;
+  /* v28.4: bump preview viewer from 220px to 360px so the cassette+anatomy
+     actually reads at a glance.  Mobile bumped from 180px to 300px below. */
   width: 100%; aspect-ratio: 1 / 1;
-  max-width: 220px; align-self: center;
+  max-width: 360px; align-self: center;
   background: var(--bg-sunken);
   border-radius: var(--r-md);
   border: 1px solid var(--border-subtle);
@@ -840,7 +842,7 @@ html, body {
 @media (max-width: 520px) {
   .exam-screen-title h2 { font-size: 20px; line-height: 26px; }
   .exam-card { padding: var(--s-3); gap: var(--s-2); }
-  .exam-card-illus { max-width: 180px; }
+  .exam-card-illus { max-width: 300px; }
   .exam-card-specs { gap: var(--s-2); }
   .spec-value { font-size: 24px; }
   .spec-section-label { font-size: 11px; }
