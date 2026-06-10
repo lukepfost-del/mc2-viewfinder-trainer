@@ -661,7 +661,8 @@ html, body {
   width: 100%; height: 100%;
   object-fit: contain;
   display: none;  /* shown by JS once the matching variant loads */
-  padding: 14px;
+  /* v28.15: padding 14px → 4px so more of the viewer is actual image. */
+  padding: 4px;
 }
 .exam-card-img.active { display: block; }
 /* A/B toggle — small icon-button cluster, neutral fill */
@@ -799,14 +800,16 @@ html, body {
   box-shadow: var(--elev-1);
 }
 .spec-mode-tab:hover:not(.active) { color: var(--text-primary); background: rgba(255,255,255,0.05); }
-/* v26.1: casual disclaimer, not a card. */
+/* v28.15: notes now sit at the TOP of the exam card (above the preview).
+   Compact 1-line eyebrow style. */
 .exam-notes {
-  font-size: 12px; line-height: 16px;
+  font-size: 11px; line-height: 14px;
   color: var(--text-tertiary);
   background: transparent;
   border: 0;
   padding: 0;
-  margin-top: 2px;
+  margin: 0 0 var(--s-2) 0;
+  letter-spacing: 0.04em;
 }
 .exam-notes::before { content: '* '; color: var(--text-tertiary); }
 
@@ -848,8 +851,9 @@ html, body {
 
 @media (max-width: 520px) {
   .exam-screen-title h2 { font-size: 20px; line-height: 26px; }
-  .exam-card { padding: var(--s-3); gap: var(--s-2); }
-  .exam-card-illus { max-width: 300px; }
+  /* v28.15: tighter card padding + slightly smaller preview on phone. */
+  .exam-card { padding: var(--s-3); gap: var(--s-1); }
+  .exam-card-illus { max-width: 280px; }
   .exam-card-specs { gap: var(--s-2); }
   .spec-value { font-size: 24px; }
   .spec-section-label { font-size: 11px; }
