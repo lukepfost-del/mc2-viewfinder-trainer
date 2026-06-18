@@ -22,7 +22,7 @@ from reportlab.lib.utils import ImageReader
 OUT      = "qr-target.pdf"
 PNG_OUT  = "qr-target.png"
 LOGO_SVG = "assets/oxos-logo.svg"
-TRAINER_URL = "https://lukepfost-del.github.io/mc2-viewfinder-trainer/"
+TRAINER_URL = "https://trainer.oxos.com/"
 MARKER_CM = 6.0
 
 # ArUco marker
